@@ -1,3 +1,5 @@
+[![npm](https://img.shields.io/npm/v/import-cost-ci)](https://www.npmjs.com/package/import-cost-ci) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # import-cost-ci
 
 > Know the bundle cost of your imports before CI catches you.
