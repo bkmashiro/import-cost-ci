@@ -14,7 +14,7 @@ interface GitHubIssueComment {
   body: string
 }
 
-function parsePullRequestRef(): PullRequestRef | null {
+export function parsePullRequestRef(): PullRequestRef | null {
   const repository = process.env.GITHUB_REPOSITORY
   const eventName = process.env.GITHUB_EVENT_NAME
   const eventPath = process.env.GITHUB_EVENT_PATH
