@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { formatResultsMarkdown } from './formatter.js';
 const COMMENT_MARKER = '<!-- import-cost-ci -->';
-function parsePullRequestRef() {
+export function parsePullRequestRef() {
     const repository = process.env.GITHUB_REPOSITORY;
     const eventName = process.env.GITHUB_EVENT_NAME;
     const eventPath = process.env.GITHUB_EVENT_PATH;
