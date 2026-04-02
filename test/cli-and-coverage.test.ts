@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -92,6 +92,7 @@ function createMockedCli(options?: {
       .replace("'./bundler.js'", `'${pathToFileURL(bundler).href}'`)
       .replace("'./formatter.js'", `'${pathToFileURL(join(process.cwd(), 'src/formatter.ts')).href}'`)
       .replace("'./github-comment.js'", `'${pathToFileURL(githubComment).href}'`)
+      .replace("'./history.js'", `'${pathToFileURL(join(process.cwd(), 'src/history.ts')).href}'`)
   )
 
   return { dir, entry, fixture }
@@ -291,6 +292,85 @@ test('CLI uses GitHub Action inputs to populate argv', () => {
     assert.equal(result.status, 1)
     assert.match(result.stdout, /oversized-pkg/)
     assert.match(result.stdout, /1 import\(s\) exceeded the 1b limit\./)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI prints the treemap when --treemap is passed', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    parserSource: 'export function extractImports() { return ["beta", "alpha", "gamma"] }\n',
+    bundlerSource: `
+      export async function measureImportSize(pkg) {
+        return { alpha: 4000, beta: 2000, gamma: 1000 }[pkg]
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--treemap', '--no-fail'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stdout, /Import size breakdown \(total: 6\.8 kB\):/)
+    assert.ok(result.stdout.indexOf('alpha') < result.stdout.indexOf('beta'))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI writes and prints history when --history is passed', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    parserSource: 'export function extractImports() { return ["alpha", "beta"] }\n',
+    bundlerSource: `
+      export async function measureImportSize(pkg) {
+        return { alpha: 1200, beta: 800 }[pkg]
+      }
+    `,
+  })
+
+  try {
+    const first = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--history', '--no-fail'], {
+      cwd: dir,
+      encoding: 'utf8',
+    })
+    const second = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--history', '--no-fail'], {
+      cwd: dir,
+      encoding: 'utf8',
+    })
+
+    assert.equal(first.status, 0)
+    assert.equal(second.status, 0)
+    assert.match(second.stdout, /Current: 2\.0 kB/)
+    assert.match(second.stdout, /History:/)
+    assert.equal(existsSync(join(dir, '.import-cost-history.json')), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI auto-enables history for GitHub Action pushes to main', () => {
+  const { dir, entry, fixture } = createMockedCli()
+  const eventPath = join(dir, 'event.json')
+  writeFileSync(eventPath, JSON.stringify({ ref: 'refs/heads/main' }))
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_NO_FAIL: 'true',
+        GITHUB_EVENT_NAME: 'push',
+        GITHUB_EVENT_PATH: eventPath,
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stdout, /Current:/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

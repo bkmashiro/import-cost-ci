@@ -6,6 +6,8 @@ export interface ImportResult {
   exceeded: boolean
 }
 
+const TREEMAP_WIDTH = 20
+
 function escapeMarkdownCell(value: string): string {
   return value.replace(/\|/g, '\\|')
 }
@@ -13,6 +15,19 @@ function escapeMarkdownCell(value: string): string {
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   return `${(bytes / 1024).toFixed(1)} kB`
+}
+
+function sortResultsBySize(results: ImportResult[]): ImportResult[] {
+  return [...results].sort((left, right) => right.bytes - left.bytes || left.pkg.localeCompare(right.pkg))
+}
+
+function buildTreemapBar(bytes: number, totalBytes: number): string {
+  if (totalBytes <= 0) {
+    return '░'.repeat(TREEMAP_WIDTH)
+  }
+
+  const filled = Math.min(TREEMAP_WIDTH, Math.round((bytes / totalBytes) * TREEMAP_WIDTH))
+  return `${'█'.repeat(filled)}${'░'.repeat(TREEMAP_WIDTH - filled)}`
 }
 
 export function buildSummaryLine(violations: number, limit: number): string {
@@ -42,6 +57,36 @@ export function formatResultsMarkdown(results: ImportResult[], limit: number): s
   return lines.join('\n')
 }
 
+export function formatTreemap(results: ImportResult[]): string {
+  const sorted = sortResultsBySize(results)
+  const totalBytes = sorted.reduce((sum, result) => sum + result.bytes, 0)
+  const topResults = sorted.slice(0, 10)
+  const remaining = sorted.slice(10)
+
+  const treemapRows = topResults.map((result) => ({
+    label: result.pkg,
+    bytes: result.bytes,
+  }))
+
+  if (remaining.length > 0) {
+    treemapRows.push({
+      label: `[other ${remaining.length} pkgs]`,
+      bytes: remaining.reduce((sum, result) => sum + result.bytes, 0),
+    })
+  }
+
+  const labelWidth = treemapRows.reduce((max, row) => Math.max(max, row.label.length), 0)
+
+  return [
+    `Import size breakdown (total: ${formatSize(totalBytes)}):`,
+    '',
+    ...treemapRows.map((row) => {
+      const percentage = totalBytes === 0 ? 0 : Math.round((row.bytes / totalBytes) * 100)
+      return `${row.label.padEnd(labelWidth)}  ${buildTreemapBar(row.bytes, totalBytes)}  ${formatSize(row.bytes).padStart(7)}  (${percentage}%)`
+    }),
+  ].join('\n')
+}
+
 export function printResults(results: ImportResult[], limit: number): void {
   for (const r of results) {
     const sizeStr = formatSize(r.bytes)
@@ -56,6 +101,10 @@ export function printResults(results: ImportResult[], limit: number): void {
       )
     }
   }
+}
+
+export function printTreemap(results: ImportResult[]): void {
+  console.log(formatTreemap(results))
 }
 
 export function printJsonResults(results: ImportResult[], limit: number): void {

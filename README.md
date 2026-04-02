@@ -26,6 +26,8 @@ import-cost-ci <file> [options]
 | `--json` | Output as JSON (for CI integration) | false |
 | `--no-fail` | Report violations but don't exit 1 | false |
 | `--ignore <pkgs>` | Comma-separated packages to skip | — |
+| `--treemap` | Print a 20-column import size treemap with the top 10 packages | false |
+| `--history` | Persist bundle history to `.import-cost-history.json` and print the trend | false |
 
 ### Example
 
@@ -59,6 +61,20 @@ $ import-cost-ci src/main.ts --limit 50kb --json
 import-cost-ci src/main.ts --limit 50kb --ignore moment,lodash
 ```
 
+### Treemap output
+
+```bash
+import-cost-ci src/main.ts --treemap
+```
+
+### History tracking
+
+```bash
+import-cost-ci src/main.ts --history
+```
+
+History is written to `.import-cost-history.json` in the current working directory. In GitHub Actions, history is enabled automatically on `push` runs to `main`.
+
 ## GitHub Actions
 
 Use the published action directly:
@@ -69,6 +85,8 @@ Use the published action directly:
   with:
     file: src/main.ts
     limit: 50kb
+    treemap: true
+    history: true
 ```
 
 The action posts or updates a PR comment automatically when it runs on a pull request and `GITHUB_TOKEN` is available.

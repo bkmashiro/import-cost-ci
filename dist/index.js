@@ -3,8 +3,9 @@ import { readFileSync } from 'fs';
 import { program } from 'commander';
 import { extractImports } from './parser.js';
 import { measureImportSize } from './bundler.js';
-import { printResults, printJsonResults } from './formatter.js';
+import { printResults, printJsonResults, printTreemap } from './formatter.js';
 import { maybePostGitHubComment } from './github-comment.js';
+import { formatHistoryReport, saveHistoryEntry, shouldAutoEnableHistory } from './history.js';
 function parseLimit(raw) {
     const match = raw.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb)?$/i);
     if (!match)
@@ -37,6 +38,12 @@ function applyGitHubActionInputs() {
     if (getActionBoolean('no-fail', false)) {
         args.push('--no-fail');
     }
+    if (getActionBoolean('treemap', false)) {
+        args.push('--treemap');
+    }
+    if (getActionBoolean('history', false) || shouldAutoEnableHistory()) {
+        args.push('--history');
+    }
     process.argv = args;
 }
 applyGitHubActionInputs();
@@ -48,6 +55,8 @@ program
     .option('--json', 'Output as JSON')
     .option('--no-fail', 'Do not exit 1 on violations (report only)')
     .option('--ignore <pkgs>', 'Comma-separated list of packages to ignore', '')
+    .option('--treemap', 'Show a size breakdown treemap')
+    .option('--history', 'Track and print bundle size history')
     .action(async (file, opts) => {
     let source;
     try {
@@ -79,8 +88,17 @@ program
     if (opts.json) {
         printJsonResults(results, limitBytes);
     }
+    else if (opts.treemap) {
+        printTreemap(results);
+    }
     else {
         printResults(results, limitBytes);
+    }
+    if (opts.history) {
+        const historyEntries = saveHistoryEntry(results);
+        if (!opts.json) {
+            console.log(`\n${formatHistoryReport(historyEntries)}`);
+        }
     }
     try {
         await maybePostGitHubComment(results, limitBytes);

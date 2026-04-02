@@ -10,6 +10,12 @@ inputs:
   no-fail:
     description: Do not fail CI, just report
     default: "false"
+  treemap:
+    description: Print the import size treemap
+    default: "false"
+  history:
+    description: Track bundle size history in .import-cost-history.json
+    default: "false"
 runs:
   using: composite
   steps:
@@ -23,3 +29,5 @@ runs:
         INPUT_FILE: ${{ inputs.file }}
         INPUT_LIMIT: ${{ inputs.limit }}
         INPUT_NO_FAIL: ${{ inputs.no-fail }}
+        INPUT_TREEMAP: ${{ inputs.treemap }}
+        INPUT_HISTORY: ${{ inputs.history }}

@@ -3,8 +3,9 @@ import { readFileSync } from 'fs'
 import { program } from 'commander'
 import { extractImports } from './parser.js'
 import { measureImportSize } from './bundler.js'
-import { printResults, printJsonResults, type ImportResult } from './formatter.js'
+import { printResults, printJsonResults, printTreemap, type ImportResult } from './formatter.js'
 import { maybePostGitHubComment } from './github-comment.js'
+import { formatHistoryReport, saveHistoryEntry, shouldAutoEnableHistory } from './history.js'
 
 function parseLimit(raw: string): number {
   const match = raw.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb)?$/i)
@@ -39,6 +40,12 @@ function applyGitHubActionInputs(): void {
   if (getActionBoolean('no-fail', false)) {
     args.push('--no-fail')
   }
+  if (getActionBoolean('treemap', false)) {
+    args.push('--treemap')
+  }
+  if (getActionBoolean('history', false) || shouldAutoEnableHistory()) {
+    args.push('--history')
+  }
 
   process.argv = args
 }
@@ -53,60 +60,76 @@ program
   .option('--json', 'Output as JSON')
   .option('--no-fail', 'Do not exit 1 on violations (report only)')
   .option('--ignore <pkgs>', 'Comma-separated list of packages to ignore', '')
-  .action(async (file: string, opts: { limit: string; json: boolean; fail: boolean; ignore: string }) => {
-    let source: string
-    try {
-      source = readFileSync(file, 'utf-8')
-    } catch {
-      console.error(`Error: cannot read file "${file}"`)
-      process.exit(1)
-    }
-
-    const limitBytes = parseLimit(opts.limit)
-    const ignored = new Set(opts.ignore ? opts.ignore.split(',').map((s) => s.trim()) : [])
-
-    const pkgs = extractImports(source).filter((p) => !ignored.has(p))
-
-    if (pkgs.length === 0) {
-      console.log('No external imports found.')
-      process.exit(0)
-    }
-
-    const results: ImportResult[] = []
-
-    for (const pkg of pkgs) {
-      let bytes: number
+  .option('--treemap', 'Show a size breakdown treemap')
+  .option('--history', 'Track and print bundle size history')
+  .action(
+    async (
+      file: string,
+      opts: { limit: string; json: boolean; fail: boolean; ignore: string; treemap: boolean; history: boolean }
+    ) => {
+      let source: string
       try {
-        bytes = await measureImportSize(pkg)
+        source = readFileSync(file, 'utf-8')
       } catch {
-        console.error(`Warning: could not bundle "${pkg}", skipping.`)
-        continue
-      }
-      results.push({ pkg, bytes, exceeded: bytes > limitBytes })
-    }
-
-    if (opts.json) {
-      printJsonResults(results, limitBytes)
-    } else {
-      printResults(results, limitBytes)
-    }
-
-    try {
-      await maybePostGitHubComment(results, limitBytes)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error(`Warning: could not post GitHub PR comment: ${message}`)
-    }
-
-    const violations = results.filter((r) => r.exceeded)
-    if (violations.length > 0) {
-      if (!opts.json) {
-        console.log(`\n${violations.length} import(s) exceeded the ${opts.limit} limit.`)
-      }
-      if (opts.fail) {
+        console.error(`Error: cannot read file "${file}"`)
         process.exit(1)
       }
+
+      const limitBytes = parseLimit(opts.limit)
+      const ignored = new Set(opts.ignore ? opts.ignore.split(',').map((s) => s.trim()) : [])
+
+      const pkgs = extractImports(source).filter((p) => !ignored.has(p))
+
+      if (pkgs.length === 0) {
+        console.log('No external imports found.')
+        process.exit(0)
+      }
+
+      const results: ImportResult[] = []
+
+      for (const pkg of pkgs) {
+        let bytes: number
+        try {
+          bytes = await measureImportSize(pkg)
+        } catch {
+          console.error(`Warning: could not bundle "${pkg}", skipping.`)
+          continue
+        }
+        results.push({ pkg, bytes, exceeded: bytes > limitBytes })
+      }
+
+      if (opts.json) {
+        printJsonResults(results, limitBytes)
+      } else if (opts.treemap) {
+        printTreemap(results)
+      } else {
+        printResults(results, limitBytes)
+      }
+
+      if (opts.history) {
+        const historyEntries = saveHistoryEntry(results)
+        if (!opts.json) {
+          console.log(`\n${formatHistoryReport(historyEntries)}`)
+        }
+      }
+
+      try {
+        await maybePostGitHubComment(results, limitBytes)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`Warning: could not post GitHub PR comment: ${message}`)
+      }
+
+      const violations = results.filter((r) => r.exceeded)
+      if (violations.length > 0) {
+        if (!opts.json) {
+          console.log(`\n${violations.length} import(s) exceeded the ${opts.limit} limit.`)
+        }
+        if (opts.fail) {
+          process.exit(1)
+        }
+      }
     }
-  })
+  )
 
 program.parse()

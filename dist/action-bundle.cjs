@@ -3573,12 +3573,23 @@ var chalkStderr = createChalk({ level: stderrColor ? stderrColor.level : 0 });
 var source_default = chalk;
 
 // src/formatter.ts
+var TREEMAP_WIDTH = 20;
 function escapeMarkdownCell(value) {
   return value.replace(/\|/g, "\\|");
 }
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} kB`;
+}
+function sortResultsBySize(results) {
+  return [...results].sort((left, right) => right.bytes - left.bytes || left.pkg.localeCompare(right.pkg));
+}
+function buildTreemapBar(bytes, totalBytes) {
+  if (totalBytes <= 0) {
+    return "\u2591".repeat(TREEMAP_WIDTH);
+  }
+  const filled = Math.min(TREEMAP_WIDTH, Math.round(bytes / totalBytes * TREEMAP_WIDTH));
+  return `${"\u2588".repeat(filled)}${"\u2591".repeat(TREEMAP_WIDTH - filled)}`;
 }
 function buildSummaryLine(violations, limit) {
   if (violations === 0) {
@@ -3603,6 +3614,31 @@ function formatResultsMarkdown(results, limit) {
   ];
   return lines.join("\n");
 }
+function formatTreemap(results) {
+  const sorted = sortResultsBySize(results);
+  const totalBytes = sorted.reduce((sum, result) => sum + result.bytes, 0);
+  const topResults = sorted.slice(0, 10);
+  const remaining = sorted.slice(10);
+  const treemapRows = topResults.map((result) => ({
+    label: result.pkg,
+    bytes: result.bytes
+  }));
+  if (remaining.length > 0) {
+    treemapRows.push({
+      label: `[other ${remaining.length} pkgs]`,
+      bytes: remaining.reduce((sum, result) => sum + result.bytes, 0)
+    });
+  }
+  const labelWidth = treemapRows.reduce((max, row) => Math.max(max, row.label.length), 0);
+  return [
+    `Import size breakdown (total: ${formatSize(totalBytes)}):`,
+    "",
+    ...treemapRows.map((row) => {
+      const percentage = totalBytes === 0 ? 0 : Math.round(row.bytes / totalBytes * 100);
+      return `${row.label.padEnd(labelWidth)}  ${buildTreemapBar(row.bytes, totalBytes)}  ${formatSize(row.bytes).padStart(7)}  (${percentage}%)`;
+    })
+  ].join("\n");
+}
 function printResults(results, limit) {
   for (const r of results) {
     const sizeStr = formatSize(r.bytes);
@@ -3617,6 +3653,9 @@ function printResults(results, limit) {
       );
     }
   }
+}
+function printTreemap(results) {
+  console.log(formatTreemap(results));
 }
 function printJsonResults(results, limit) {
   const violations = results.filter((r) => r.exceeded).length;
@@ -3710,6 +3749,127 @@ async function maybePostGitHubComment(results, limit) {
   await githubRequest(baseUrl, { method: "POST", body: JSON.stringify({ body }) }, token);
 }
 
+// src/history.ts
+var import_node_fs2 = require("node:fs");
+var import_node_path = require("node:path");
+var HISTORY_FILE = ".import-cost-history.json";
+var MAX_HISTORY_ENTRIES = 30;
+var MILLIS_PER_DAY = 24 * 60 * 60 * 1e3;
+function getHistoryFilePath(cwd = process.cwd()) {
+  return (0, import_node_path.join)(cwd, HISTORY_FILE);
+}
+function getTodayDate() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function sanitizeHistoryEntry(entry) {
+  if (!entry || typeof entry.date !== "string" || typeof entry.totalSize !== "number" || !Array.isArray(entry.packages)) {
+    return null;
+  }
+  const packages = entry.packages.filter(
+    (pkg) => Boolean(pkg) && typeof pkg.name === "string" && typeof pkg.size === "number"
+  ).map((pkg) => ({ name: pkg.name, size: pkg.size }));
+  return {
+    date: entry.date,
+    totalSize: entry.totalSize,
+    packages
+  };
+}
+function loadHistory(cwd = process.cwd()) {
+  const historyPath = getHistoryFilePath(cwd);
+  if (!(0, import_node_fs2.existsSync)(historyPath)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse((0, import_node_fs2.readFileSync)(historyPath, "utf8"));
+    const entries = Array.isArray(parsed) ? parsed : parsed.entries;
+    if (!Array.isArray(entries)) {
+      return [];
+    }
+    return entries.map((entry) => sanitizeHistoryEntry(entry)).filter((entry) => entry !== null).slice(0, MAX_HISTORY_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+function buildHistoryEntry(results, date = getTodayDate()) {
+  const sortedPackages = [...results].sort((left, right) => right.bytes - left.bytes || left.pkg.localeCompare(right.pkg)).map((result) => ({ name: result.pkg, size: result.bytes }));
+  return {
+    date,
+    totalSize: results.reduce((sum, result) => sum + result.bytes, 0),
+    packages: sortedPackages
+  };
+}
+function saveHistoryEntry(results, cwd = process.cwd(), date = getTodayDate()) {
+  const historyPath = getHistoryFilePath(cwd);
+  const nextEntry = buildHistoryEntry(results, date);
+  const existingEntries = loadHistory(cwd);
+  const entries = [nextEntry, ...existingEntries].slice(0, MAX_HISTORY_ENTRIES);
+  (0, import_node_fs2.writeFileSync)(historyPath, JSON.stringify({ entries }, null, 2) + "\n");
+  return entries;
+}
+function formatSignedKb(bytes) {
+  const kb = bytes / 1024;
+  const rounded = Math.round(Math.abs(kb) * 10) / 10;
+  const sign = bytes >= 0 ? "+" : "-";
+  if (Number.isInteger(rounded)) {
+    return `${sign}${rounded.toFixed(0)}kb`;
+  }
+  return `${sign}${rounded.toFixed(1)}kb`;
+}
+function describeTrend(bytesPerWeek) {
+  if (Math.abs(bytesPerWeek) < 1) {
+    return "stable";
+  }
+  return bytesPerWeek > 0 ? "growing" : "shrinking";
+}
+function formatHistoryReport(entries) {
+  if (entries.length === 0) {
+    return "Current: 0 B\nHistory:\n  (no history yet)\n\nTrend: not enough data";
+  }
+  const [current, ...previousEntries] = entries;
+  const lines = [`Current: ${formatSize(current.totalSize)}`, "History:"];
+  if (previousEntries.length === 0) {
+    lines.push("  (no previous runs)");
+    lines.push("");
+    lines.push("Trend: not enough data");
+    return lines.join("\n");
+  }
+  previousEntries.forEach((entry, index) => {
+    const newerEntry = index === 0 ? current : previousEntries[index - 1];
+    const delta = newerEntry.totalSize - entry.totalSize;
+    const direction = delta > 0 ? "\u25B2" : delta < 0 ? "\u25BC" : "\u2022";
+    const deltaText = delta === 0 ? "" : `  ${direction} ${formatSignedKb(delta)}`;
+    lines.push(`  ${entry.date}  ${formatSize(entry.totalSize)}${deltaText}`);
+  });
+  lines.push("");
+  const oldest = entries[entries.length - 1];
+  const spanDays = Math.max(
+    0,
+    Math.round((Date.parse(current.date) - Date.parse(oldest.date)) / MILLIS_PER_DAY)
+  );
+  if (spanDays === 0) {
+    lines.push("Trend: not enough data");
+    return lines.join("\n");
+  }
+  const bytesPerWeek = (current.totalSize - oldest.totalSize) / spanDays * 7;
+  lines.push(`Trend: ${formatSignedKb(bytesPerWeek)}/week (${describeTrend(bytesPerWeek)})`);
+  return lines.join("\n");
+}
+function shouldAutoEnableHistory() {
+  if (process.env.GITHUB_EVENT_NAME !== "push") {
+    return false;
+  }
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (!eventPath || !(0, import_node_fs2.existsSync)(eventPath)) {
+    return false;
+  }
+  try {
+    const event = JSON.parse((0, import_node_fs2.readFileSync)(eventPath, "utf8"));
+    return event.ref === "refs/heads/main";
+  } catch {
+    return false;
+  }
+}
+
 // src/index.ts
 function parseLimit(raw) {
   const match = raw.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb)?$/i);
@@ -3740,55 +3900,72 @@ function applyGitHubActionInputs() {
   if (getActionBoolean("no-fail", false)) {
     args.push("--no-fail");
   }
+  if (getActionBoolean("treemap", false)) {
+    args.push("--treemap");
+  }
+  if (getActionBoolean("history", false) || shouldAutoEnableHistory()) {
+    args.push("--history");
+  }
   process.argv = args;
 }
 applyGitHubActionInputs();
-program.name("import-cost-ci").description("Analyze bundle size cost of each import in a JS/TS file").argument("<file>", "Source file to analyze").option("--limit <size>", "Size limit (e.g. 50kb, 100kb)", "100kb").option("--json", "Output as JSON").option("--no-fail", "Do not exit 1 on violations (report only)").option("--ignore <pkgs>", "Comma-separated list of packages to ignore", "").action(async (file, opts) => {
-  let source;
-  try {
-    source = (0, import_fs.readFileSync)(file, "utf-8");
-  } catch {
-    console.error(`Error: cannot read file "${file}"`);
-    process.exit(1);
-  }
-  const limitBytes = parseLimit(opts.limit);
-  const ignored = new Set(opts.ignore ? opts.ignore.split(",").map((s) => s.trim()) : []);
-  const pkgs = extractImports(source).filter((p) => !ignored.has(p));
-  if (pkgs.length === 0) {
-    console.log("No external imports found.");
-    process.exit(0);
-  }
-  const results = [];
-  for (const pkg of pkgs) {
-    let bytes;
+program.name("import-cost-ci").description("Analyze bundle size cost of each import in a JS/TS file").argument("<file>", "Source file to analyze").option("--limit <size>", "Size limit (e.g. 50kb, 100kb)", "100kb").option("--json", "Output as JSON").option("--no-fail", "Do not exit 1 on violations (report only)").option("--ignore <pkgs>", "Comma-separated list of packages to ignore", "").option("--treemap", "Show a size breakdown treemap").option("--history", "Track and print bundle size history").action(
+  async (file, opts) => {
+    let source;
     try {
-      bytes = await measureImportSize(pkg);
+      source = (0, import_fs.readFileSync)(file, "utf-8");
     } catch {
-      console.error(`Warning: could not bundle "${pkg}", skipping.`);
-      continue;
-    }
-    results.push({ pkg, bytes, exceeded: bytes > limitBytes });
-  }
-  if (opts.json) {
-    printJsonResults(results, limitBytes);
-  } else {
-    printResults(results, limitBytes);
-  }
-  try {
-    await maybePostGitHubComment(results, limitBytes);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Warning: could not post GitHub PR comment: ${message}`);
-  }
-  const violations = results.filter((r) => r.exceeded);
-  if (violations.length > 0) {
-    if (!opts.json) {
-      console.log(`
-${violations.length} import(s) exceeded the ${opts.limit} limit.`);
-    }
-    if (opts.fail) {
+      console.error(`Error: cannot read file "${file}"`);
       process.exit(1);
     }
+    const limitBytes = parseLimit(opts.limit);
+    const ignored = new Set(opts.ignore ? opts.ignore.split(",").map((s) => s.trim()) : []);
+    const pkgs = extractImports(source).filter((p) => !ignored.has(p));
+    if (pkgs.length === 0) {
+      console.log("No external imports found.");
+      process.exit(0);
+    }
+    const results = [];
+    for (const pkg of pkgs) {
+      let bytes;
+      try {
+        bytes = await measureImportSize(pkg);
+      } catch {
+        console.error(`Warning: could not bundle "${pkg}", skipping.`);
+        continue;
+      }
+      results.push({ pkg, bytes, exceeded: bytes > limitBytes });
+    }
+    if (opts.json) {
+      printJsonResults(results, limitBytes);
+    } else if (opts.treemap) {
+      printTreemap(results);
+    } else {
+      printResults(results, limitBytes);
+    }
+    if (opts.history) {
+      const historyEntries = saveHistoryEntry(results);
+      if (!opts.json) {
+        console.log(`
+${formatHistoryReport(historyEntries)}`);
+      }
+    }
+    try {
+      await maybePostGitHubComment(results, limitBytes);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Warning: could not post GitHub PR comment: ${message}`);
+    }
+    const violations = results.filter((r) => r.exceeded);
+    if (violations.length > 0) {
+      if (!opts.json) {
+        console.log(`
+${violations.length} import(s) exceeded the ${opts.limit} limit.`);
+      }
+      if (opts.fail) {
+        process.exit(1);
+      }
+    }
   }
-});
+);
 program.parse();
