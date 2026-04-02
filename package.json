@@ -1,0 +1,28 @@
+{
+  "name": "import-cost-ci",
+  "version": "0.1.0",
+  "description": "Know the bundle cost of your imports before CI catches you",
+  "type": "module",
+  "bin": {
+    "import-cost-ci": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --import tsx/esm src/index.ts",
+    "prepublishOnly": "tsc"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "esbuild": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}
