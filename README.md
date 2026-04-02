@@ -59,10 +59,17 @@ import-cost-ci src/main.ts --limit 50kb --ignore moment,lodash
 
 ## GitHub Actions
 
+Use the published action directly:
+
 ```yaml
 - name: Check import costs
-  run: npx import-cost-ci src/main.ts --limit 50kb
+  uses: yuzhva/import-cost-ci@v0
+  with:
+    file: src/main.ts
+    limit: 50kb
 ```
+
+The action posts or updates a PR comment automatically when it runs on a pull request and `GITHUB_TOKEN` is available.
 
 Full workflow example:
 
@@ -79,7 +86,12 @@ jobs:
         with:
           node-version: 20
       - name: Check import costs
-        run: npx import-cost-ci src/main.ts --limit 50kb
+        uses: yuzhva/import-cost-ci@v0
+        with:
+          file: src/main.ts
+          limit: 50kb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## How it works

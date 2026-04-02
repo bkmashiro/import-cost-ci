@@ -4,6 +4,7 @@ import { program } from 'commander'
 import { extractImports } from './parser.js'
 import { measureImportSize } from './bundler.js'
 import { printResults, printJsonResults, type ImportResult } from './formatter.js'
+import { maybePostGitHubComment } from './github-comment.js'
 
 function parseLimit(raw: string): number {
   const match = raw.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb)?$/i)
@@ -14,6 +15,35 @@ function parseLimit(raw: string): number {
   if (unit === 'mb') return Math.round(value * 1_000_000)
   return Math.round(value)
 }
+
+function getActionBoolean(name: string, fallback: boolean): boolean {
+  const value = process.env[`INPUT_${name.toUpperCase().replace(/-/g, '_')}`]
+  if (!value) {
+    return fallback
+  }
+
+  return value.toLowerCase() !== 'false'
+}
+
+function applyGitHubActionInputs(): void {
+  const file = process.env.INPUT_FILE
+  if (!file) {
+    return
+  }
+
+  const args = [process.argv[0], process.argv[1], file]
+  const limit = process.env.INPUT_LIMIT
+  if (limit) {
+    args.push('--limit', limit)
+  }
+  if (getActionBoolean('no-fail', false)) {
+    args.push('--no-fail')
+  }
+
+  process.argv = args
+}
+
+applyGitHubActionInputs()
 
 program
   .name('import-cost-ci')
@@ -59,6 +89,13 @@ program
       printJsonResults(results, limitBytes)
     } else {
       printResults(results, limitBytes)
+    }
+
+    try {
+      await maybePostGitHubComment(results, limitBytes)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`Warning: could not post GitHub PR comment: ${message}`)
     }
 
     const violations = results.filter((r) => r.exceeded)

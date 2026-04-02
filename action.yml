@@ -1,0 +1,15 @@
+name: import-cost-ci
+description: Check bundle size cost of imports and fail CI if limit exceeded
+inputs:
+  file:
+    description: File to analyze
+    required: true
+  limit:
+    description: Size limit e.g. 50kb
+    default: "100kb"
+  no-fail:
+    description: Do not fail CI, just report
+    default: "false"
+runs:
+  using: node20
+  main: dist/index.js
