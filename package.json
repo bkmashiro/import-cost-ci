@@ -13,6 +13,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "node --import tsx/esm src/index.ts",
+    "test": "node --import tsx/esm --test test/**/*.test.ts",
     "prepublishOnly": "tsc"
   },
   "dependencies": {
