@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "build:action": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/action-bundle.cjs --format=cjs --external:esbuild",
     "dev": "node --import tsx/esm src/index.ts",
     "test": "node --import tsx/esm --test test/**/*.test.ts",
     "prepublishOnly": "tsc"

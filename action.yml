@@ -11,5 +11,15 @@ inputs:
     description: Do not fail CI, just report
     default: "false"
 runs:
-  using: node20
-  main: dist/index.js
+  using: composite
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: npm install --prefix "${{ github.action_path }}" --production
+    - name: Run import-cost-ci
+      shell: bash
+      run: node "${{ github.action_path }}/dist/action-bundle.cjs"
+      env:
+        INPUT_FILE: ${{ inputs.file }}
+        INPUT_LIMIT: ${{ inputs.limit }}
+        INPUT_NO_FAIL: ${{ inputs.no-fail }}
