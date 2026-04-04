@@ -2,7 +2,7 @@
 import { readFileSync } from 'fs'
 import { program } from 'commander'
 import { extractImports } from './parser.js'
-import { measureImportSize } from './bundler.js'
+import { measureImportSize, type BundlerName } from './bundler.js'
 import { printResults, printJsonResults, printTreemap, type ImportResult } from './formatter.js'
 import { maybePostGitHubComment } from './github-comment.js'
 import { formatHistoryReport, saveHistoryEntry, shouldAutoEnableHistory } from './history.js'
@@ -62,10 +62,11 @@ program
   .option('--ignore <pkgs>', 'Comma-separated list of packages to ignore', '')
   .option('--treemap', 'Show a size breakdown treemap')
   .option('--history', 'Track and print bundle size history')
+  .option('--bundler <name>', 'Bundler to use: esbuild, webpack, vite, rollup', 'esbuild')
   .action(
     async (
       file: string,
-      opts: { limit: string; json: boolean; fail: boolean; ignore: string; treemap: boolean; history: boolean }
+      opts: { limit: string; json: boolean; fail: boolean; ignore: string; treemap: boolean; history: boolean; bundler: BundlerName }
     ) => {
       let source: string
       try {
@@ -90,7 +91,7 @@ program
       for (const pkg of pkgs) {
         let bytes: number
         try {
-          bytes = await measureImportSize(pkg)
+          bytes = await measureImportSize(pkg, opts.bundler)
         } catch {
           console.error(`Warning: could not bundle "${pkg}", skipping.`)
           continue

@@ -57,6 +57,7 @@ program
     .option('--ignore <pkgs>', 'Comma-separated list of packages to ignore', '')
     .option('--treemap', 'Show a size breakdown treemap')
     .option('--history', 'Track and print bundle size history')
+    .option('--bundler <name>', 'Bundler to use: esbuild, webpack, vite, rollup', 'esbuild')
     .action(async (file, opts) => {
     let source;
     try {
@@ -77,7 +78,7 @@ program
     for (const pkg of pkgs) {
         let bytes;
         try {
-            bytes = await measureImportSize(pkg);
+            bytes = await measureImportSize(pkg, opts.bundler);
         }
         catch {
             console.error(`Warning: could not bundle "${pkg}", skipping.`);
