@@ -4,7 +4,7 @@
 
 > Know the bundle cost of your imports before CI catches you.
 
-`import-cost-ci` analyzes every external import in a JS/TS file, bundles each one in isolation using esbuild, and reports the minified + gzip size. Fail your CI pipeline if any import exceeds your configured size budget.
+`import-cost-ci` analyzes every external import in a JS/TS file, bundles each one in isolation, and reports the minified + gzip size. Fail your CI pipeline if any import exceeds your configured size budget. Supports esbuild (default), webpack, vite, and rollup as the bundler back-end.
 
 ## Install
 
@@ -27,6 +27,7 @@ import-cost-ci <file> [options]
 | `--no-fail` | Report violations but don't exit 1 | false |
 | `--ignore <pkgs>` | Comma-separated packages to skip | — |
 | `--treemap` | Print a 20-column import size treemap with the top 10 packages | false |
+| `--bundler <name>` | Bundler to use: `esbuild`, `webpack`, `vite`, or `rollup` | `esbuild` |
 | `--history` | Persist bundle history to `.import-cost-history.json` and print the trend | false |
 
 ### Example
@@ -75,6 +76,35 @@ import-cost-ci src/main.ts --history
 
 History is written to `.import-cost-history.json` in the current working directory. In GitHub Actions, history is enabled automatically on `push` runs to `main`.
 
+### Choosing a bundler
+
+By default `import-cost-ci` uses **esbuild**, which is the fastest option. Use `--bundler` to switch to webpack, vite, or rollup when you want measurements that match your actual build pipeline:
+
+```bash
+# esbuild (default) — fastest, great for everyday CI checks
+import-cost-ci src/main.ts --limit 50kb
+
+# webpack — matches a webpack-based app
+import-cost-ci src/main.ts --bundler webpack --limit 50kb
+
+# vite — matches a Vite-based app
+import-cost-ci src/main.ts --bundler vite --limit 50kb
+
+# rollup — matches a rollup-based library
+import-cost-ci src/main.ts --bundler rollup --limit 50kb
+```
+
+Each bundler produces a minified, gzip-compressed measurement. Results will differ slightly between bundlers due to differences in tree-shaking and output format — pick the one that matches your production build for the most accurate numbers.
+
+#### Bundler configuration notes
+
+| Bundler | Config used by import-cost-ci |
+|---------|-------------------------------|
+| **esbuild** | `bundle: true`, `minify: true`, `platform: browser`, `format: esm` |
+| **webpack** | `mode: production`, ESM library output (`experiments.outputModule`), memory FS output |
+| **vite** | library mode, `formats: ['es']`, `minify: true`, no external packages |
+| **rollup** | `@rollup/plugin-node-resolve` (browser), `@rollup/plugin-terser`, `format: esm` |
+
 ## GitHub Actions
 
 Use the published action directly:
@@ -85,13 +115,14 @@ Use the published action directly:
   with:
     file: src/main.ts
     limit: 50kb
+    bundler: esbuild   # esbuild (default) | webpack | vite | rollup
     treemap: true
     history: true
 ```
 
 The action posts or updates a PR comment automatically when it runs on a pull request and `GITHUB_TOKEN` is available.
 
-Full workflow example:
+Full workflow example (esbuild, default):
 
 ```yaml
 name: Import Cost Check
@@ -110,6 +141,46 @@ jobs:
         with:
           file: src/main.ts
           limit: 50kb
+          # bundler: esbuild  ← default, fastest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+webpack example (for webpack-based projects):
+
+```yaml
+      - name: Check import costs (webpack)
+        uses: yuzhva/import-cost-ci@v0
+        with:
+          file: src/main.ts
+          limit: 50kb
+          bundler: webpack
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+vite example (for Vite-based projects):
+
+```yaml
+      - name: Check import costs (vite)
+        uses: yuzhva/import-cost-ci@v0
+        with:
+          file: src/main.ts
+          limit: 50kb
+          bundler: vite
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+rollup example (for rollup-based libraries):
+
+```yaml
+      - name: Check import costs (rollup)
+        uses: yuzhva/import-cost-ci@v0
+        with:
+          file: src/main.ts
+          limit: 50kb
+          bundler: rollup
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```

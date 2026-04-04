@@ -12,6 +12,7 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Default job: esbuild bundler (fastest, recommended for most projects)
   import-cost:
     runs-on: ubuntu-latest
     steps:
@@ -21,10 +22,63 @@ jobs:
         with:
           node-version: 20
 
-      - name: Check import costs
+      - name: Check import costs (esbuild)
         uses: ./
         with:
           file: src/index.ts
           limit: 50kb
+          # bundler defaults to esbuild — omit the key or set it explicitly:
+          # bundler: esbuild
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example: webpack bundler — use when your app is built with webpack
+  # import-cost-webpack:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #     - name: Check import costs (webpack)
+  #       uses: yuzhva/import-cost-ci@v0
+  #       with:
+  #         file: src/main.ts
+  #         limit: 50kb
+  #         bundler: webpack
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example: vite bundler — use when your app is built with Vite
+  # import-cost-vite:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #     - name: Check import costs (vite)
+  #       uses: yuzhva/import-cost-ci@v0
+  #       with:
+  #         file: src/main.ts
+  #         limit: 50kb
+  #         bundler: vite
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example: rollup bundler — use when your library is built with rollup
+  # import-cost-rollup:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #     - name: Check import costs (rollup)
+  #       uses: yuzhva/import-cost-ci@v0
+  #       with:
+  #         file: src/main.ts
+  #         limit: 50kb
+  #         bundler: rollup
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
