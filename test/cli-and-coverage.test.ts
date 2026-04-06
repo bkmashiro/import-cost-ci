@@ -8,6 +8,7 @@ import test from 'node:test'
 
 import { printResults } from '../src/formatter.ts'
 import { maybePostGitHubComment, parsePullRequestRef } from '../src/github-comment.ts'
+import { getActionBoolean, parseLimit } from '../src/utils.ts'
 
 function withEnv(
   overrides: Partial<Record<'GITHUB_REPOSITORY' | 'GITHUB_EVENT_NAME' | 'GITHUB_EVENT_PATH' | 'GITHUB_TOKEN', string | undefined>>,
@@ -501,6 +502,103 @@ test('CLI accepts uppercase B unit in --limit and treats package as failing', ()
     assert.match(result.stdout, /exceeded the 1B limit/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// parseLimit tests
+
+test('parseLimit parses bytes without a unit', () => {
+  assert.equal(parseLimit('500'), 500)
+})
+
+test('parseLimit parses kilobytes', () => {
+  assert.equal(parseLimit('500kb'), 500_000)
+})
+
+test('parseLimit parses megabytes', () => {
+  assert.equal(parseLimit('1mb'), 1_000_000)
+})
+
+test('parseLimit parses fractional megabytes', () => {
+  assert.equal(parseLimit('2.5mb'), 2_500_000)
+})
+
+test('parseLimit parses zero bytes', () => {
+  assert.equal(parseLimit('0kb'), 0)
+})
+
+test('parseLimit is case-insensitive for units', () => {
+  assert.equal(parseLimit('100KB'), 100_000)
+  assert.equal(parseLimit('1MB'), 1_000_000)
+})
+
+test('parseLimit throws on input with no value', () => {
+  assert.throws(() => parseLimit('kb'), /Invalid size limit/)
+})
+
+test('parseLimit throws on unknown unit', () => {
+  assert.throws(() => parseLimit('100gb'), /Invalid size limit/)
+})
+
+test('parseLimit throws on non-numeric input', () => {
+  assert.throws(() => parseLimit('NaN'), /Invalid size limit/)
+})
+
+test('parseLimit throws on empty string', () => {
+  assert.throws(() => parseLimit(''), /Invalid size limit/)
+})
+
+// getActionBoolean tests
+
+test('getActionBoolean returns fallback when env var is not set', () => {
+  const key = 'INPUT_MISSING_VAR_XYZ'
+  delete process.env[key]
+  assert.equal(getActionBoolean('missing-var-xyz', false), false)
+  assert.equal(getActionBoolean('missing-var-xyz', true), true)
+})
+
+test('getActionBoolean returns false for "false" string', () => {
+  process.env.INPUT_MY_FLAG = 'false'
+  try {
+    assert.equal(getActionBoolean('my-flag', true), false)
+  } finally {
+    delete process.env.INPUT_MY_FLAG
+  }
+})
+
+test('getActionBoolean returns false for "FALSE" (case-insensitive)', () => {
+  process.env.INPUT_MY_FLAG = 'FALSE'
+  try {
+    assert.equal(getActionBoolean('my-flag', true), false)
+  } finally {
+    delete process.env.INPUT_MY_FLAG
+  }
+})
+
+test('getActionBoolean returns true for "true" string', () => {
+  process.env.INPUT_MY_FLAG = 'true'
+  try {
+    assert.equal(getActionBoolean('my-flag', false), true)
+  } finally {
+    delete process.env.INPUT_MY_FLAG
+  }
+})
+
+test('getActionBoolean returns true for any non-false non-empty string', () => {
+  process.env.INPUT_MY_FLAG = 'yes'
+  try {
+    assert.equal(getActionBoolean('my-flag', false), true)
+  } finally {
+    delete process.env.INPUT_MY_FLAG
+  }
+})
+
+test('getActionBoolean converts hyphens to underscores in the env var name', () => {
+  process.env.INPUT_NO_FAIL = 'true'
+  try {
+    assert.equal(getActionBoolean('no-fail', false), true)
+  } finally {
+    delete process.env.INPUT_NO_FAIL
   }
 })
 
