@@ -5,7 +5,15 @@ import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-import { buildSummaryLine, formatResultsMarkdown, formatSize, formatTreemap } from '../src/formatter.ts'
+import {
+  buildSummaryLine,
+  buildTreemapBar,
+  escapeMarkdownCell,
+  formatResultsMarkdown,
+  formatSize,
+  formatTreemap,
+  sortResultsBySize,
+} from '../src/formatter.ts'
 
 function createMockedCli(size: number): { dir: string; entry: string; fixture: string } {
   const dir = mkdtempSync(join(process.cwd(), 'import-cost-ci-cli-'))
@@ -74,6 +82,83 @@ test('renders markdown table output', () => {
   assert.match(output, /\| `react` \| 2\.3 kB \| OK \|/)
   assert.match(output, /\| `moment` \| 70\.4 kB \| Exceeded \|/)
   assert.match(output, /1 import\(s\) exceeded the 48\.8 kB limit\./)
+})
+
+test('escapeMarkdownCell escapes pipe characters', () => {
+  assert.equal(escapeMarkdownCell('a|b'), 'a\\|b')
+})
+
+test('escapeMarkdownCell escapes multiple pipes', () => {
+  assert.equal(escapeMarkdownCell('a|b|c'), 'a\\|b\\|c')
+})
+
+test('escapeMarkdownCell leaves backticks unchanged', () => {
+  assert.equal(escapeMarkdownCell('`foo`'), '`foo`')
+})
+
+test('escapeMarkdownCell handles empty string', () => {
+  assert.equal(escapeMarkdownCell(''), '')
+})
+
+test('sortResultsBySize sorts descending by bytes', () => {
+  const results = [
+    { pkg: 'small', bytes: 100, exceeded: false },
+    { pkg: 'large', bytes: 9000, exceeded: false },
+    { pkg: 'medium', bytes: 500, exceeded: false },
+  ]
+  const sorted = sortResultsBySize(results)
+  assert.deepEqual(
+    sorted.map((r) => r.pkg),
+    ['large', 'medium', 'small']
+  )
+})
+
+test('sortResultsBySize breaks ties alphabetically', () => {
+  const results = [
+    { pkg: 'zebra', bytes: 500, exceeded: false },
+    { pkg: 'alpha', bytes: 500, exceeded: false },
+    { pkg: 'mango', bytes: 500, exceeded: false },
+  ]
+  const sorted = sortResultsBySize(results)
+  assert.deepEqual(
+    sorted.map((r) => r.pkg),
+    ['alpha', 'mango', 'zebra']
+  )
+})
+
+test('sortResultsBySize does not mutate the original array', () => {
+  const results = [
+    { pkg: 'b', bytes: 200, exceeded: false },
+    { pkg: 'a', bytes: 900, exceeded: false },
+  ]
+  const original = [...results]
+  sortResultsBySize(results)
+  assert.deepEqual(results, original)
+})
+
+test('buildTreemapBar returns all empty blocks when totalBytes is 0', () => {
+  assert.equal(buildTreemapBar(0, 0), '░'.repeat(20))
+})
+
+test('buildTreemapBar returns all empty blocks when totalBytes is negative', () => {
+  assert.equal(buildTreemapBar(0, -1), '░'.repeat(20))
+})
+
+test('buildTreemapBar returns all filled blocks at 100%', () => {
+  assert.equal(buildTreemapBar(1000, 1000), '█'.repeat(20))
+})
+
+test('buildTreemapBar returns half filled blocks at 50%', () => {
+  assert.equal(buildTreemapBar(500, 1000), `${'█'.repeat(10)}${'░'.repeat(10)}`)
+})
+
+test('buildTreemapBar clamps to full bar when bytes exceeds total', () => {
+  assert.equal(buildTreemapBar(2000, 1000), '█'.repeat(20))
+})
+
+test('buildTreemapBar always returns a string of exactly 20 characters', () => {
+  const bar = buildTreemapBar(333, 1000)
+  assert.equal([...bar].length, 20)
 })
 
 test('renders treemap output sorted by size and groups the remainder', () => {
