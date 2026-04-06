@@ -784,6 +784,35 @@ test('CLI --limit 50kb allows a package just under the 1024-based boundary (5119
   }
 })
 
+test('CLI passes INPUT_BUNDLER to the --bundler flag via GitHub Action inputs', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_NO_FAIL: 'true',
+        INPUT_BUNDLER: 'rollup',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:rollup/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('CLI --limit 50kb rejects a package just over the 1024-based boundary (51201 bytes)', () => {
   const { dir, entry, fixture } = createMockedCli({
     bundlerSource: 'export async function measureImportSize() { return 51201 }\n',
@@ -817,6 +846,34 @@ test('CLI --limit 50kb accepts exactly 51200 bytes (the boundary itself)', () =>
     assert.equal(result.status, 0)
     assert.match(result.stdout, /✓/)
     assert.doesNotMatch(result.stdout, /exceeded/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI defaults to esbuild when INPUT_BUNDLER is not set', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_NO_FAIL: 'true',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:esbuild/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

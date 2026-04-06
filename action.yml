@@ -18,6 +18,7 @@ inputs:
     default: "false"
   bundler:
     description: Bundler to use (esbuild, webpack, vite, rollup)
+    required: false
     default: "esbuild"
 runs:
   using: composite
