@@ -6,25 +6,7 @@ import { measureImportSize, type BundlerName } from './bundler.js'
 import { printResults, printJsonResults, printTreemap, type ImportResult } from './formatter.js'
 import { maybePostGitHubComment } from './github-comment.js'
 import { formatHistoryReport, saveHistoryEntry, shouldAutoEnableHistory } from './history.js'
-
-function parseLimit(raw: string): number {
-  const match = raw.match(/^(\d+(?:\.\d+)?)\s*(b|kb|mb)?$/i)
-  if (!match) throw new Error(`Invalid size limit: ${raw}`)
-  const value = parseFloat(match[1])
-  const unit = (match[2] || 'b').toLowerCase()
-  if (unit === 'kb') return Math.round(value * 1024)
-  if (unit === 'mb') return Math.round(value * 1024 * 1024)
-  return Math.round(value)
-}
-
-function getActionBoolean(name: string, fallback: boolean): boolean {
-  const value = process.env[`INPUT_${name.toUpperCase().replace(/-/g, '_')}`]
-  if (!value) {
-    return fallback
-  }
-
-  return value.toLowerCase() !== 'false'
-}
+import { getActionBoolean, parseLimit } from './utils.js'
 
 function applyGitHubActionInputs(): void {
   const file = process.env.INPUT_FILE
@@ -45,10 +27,6 @@ function applyGitHubActionInputs(): void {
   }
   if (getActionBoolean('history', false) || shouldAutoEnableHistory()) {
     args.push('--history')
-  }
-  const bundler = process.env.INPUT_BUNDLER
-  if (bundler) {
-    args.push('--bundler', bundler)
   }
 
   process.argv = args
@@ -96,8 +74,8 @@ program
         let bytes: number
         try {
           bytes = await measureImportSize(pkg, opts.bundler)
-        } catch (error) {
-          console.error(`Warning: could not bundle "${pkg}", skipping.`, error instanceof Error ? error.message : error)
+        } catch {
+          console.error(`Warning: could not bundle "${pkg}", skipping.`)
           continue
         }
         results.push({ pkg, bytes, exceeded: bytes > limitBytes })
