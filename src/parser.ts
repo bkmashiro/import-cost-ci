@@ -5,6 +5,16 @@ const IMPORT_PATTERNS = [
   /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
 ]
 
+/**
+ * Extracts all third-party package names from a TypeScript/JavaScript source string.
+ *
+ * Recognises both static (`import ... from 'pkg'`) and dynamic (`import('pkg')`)
+ * import forms. Relative and absolute path imports (starting with `.` or `/`) are
+ * excluded — only bare package specifiers are returned.
+ *
+ * @param source - The full source text to scan for import statements.
+ * @returns A deduplicated array of package specifier strings, in encounter order.
+ */
 export function extractImports(source: string): string[] {
   const imports = new Set<string>()
 

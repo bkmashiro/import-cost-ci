@@ -14,6 +14,18 @@ interface GitHubIssueComment {
   body: string
 }
 
+/**
+ * Reads the current GitHub Actions environment to determine whether the workflow
+ * is running in the context of a pull request, and returns the identifying details
+ * needed to interact with the PR via the GitHub API.
+ *
+ * Requires the `GITHUB_REPOSITORY`, `GITHUB_EVENT_NAME`, and `GITHUB_EVENT_PATH`
+ * environment variables to be set (standard in GitHub Actions). Returns `null` when
+ * not running inside a `pull_request` or `pull_request_target` event.
+ *
+ * @returns A {@link PullRequestRef} with `owner`, `repo`, and `issueNumber`, or
+ *   `null` if the context is not a pull-request workflow run.
+ */
 export function parsePullRequestRef(): PullRequestRef | null {
   const repository = process.env.GITHUB_REPOSITORY
   const eventName = process.env.GITHUB_EVENT_NAME
@@ -69,6 +81,18 @@ async function githubRequest<T>(url: string, init: RequestInit, token: string): 
   return response.json() as Promise<T>
 }
 
+/**
+ * Posts or updates an import-cost report comment on the current pull request.
+ *
+ * If an existing comment from a previous run (identified by a hidden HTML marker)
+ * is found, it is updated in place via a PATCH request; otherwise a new comment is
+ * created. This function is a no-op when `GITHUB_TOKEN` is not set or the workflow
+ * is not running in a pull-request context.
+ *
+ * @param results - Import measurement results to include in the comment body.
+ * @param limit - The size limit in bytes shown in the Markdown report.
+ * @returns A promise that resolves when the comment has been posted or updated.
+ */
 export async function maybePostGitHubComment(results: ImportResult[], limit: number): Promise<void> {
   const token = process.env.GITHUB_TOKEN
   if (!token) {
