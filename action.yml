@@ -16,6 +16,9 @@ inputs:
   history:
     description: Track bundle size history in .import-cost-history.json
     default: "false"
+  bundler:
+    description: Bundler to use (esbuild, webpack, vite, rollup)
+    default: "esbuild"
 runs:
   using: composite
   steps:
@@ -31,3 +34,4 @@ runs:
         INPUT_NO_FAIL: ${{ inputs.no-fail }}
         INPUT_TREEMAP: ${{ inputs.treemap }}
         INPUT_HISTORY: ${{ inputs.history }}
+        INPUT_BUNDLER: ${{ inputs.bundler }}
