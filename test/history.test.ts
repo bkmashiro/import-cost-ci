@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import {
+  describeTrend,
   formatHistoryReport,
+  formatSignedKb,
   getHistoryFilePath,
   loadHistory,
   saveHistoryEntry,
@@ -41,6 +43,46 @@ function withEnv(
     }
   }
 }
+
+test('formatSignedKb formats a positive whole-kilobyte value without decimal', () => {
+  assert.equal(formatSignedKb(5 * 1024), '+5kb')
+})
+
+test('formatSignedKb formats a negative whole-kilobyte value without decimal', () => {
+  assert.equal(formatSignedKb(-2 * 1024), '-2kb')
+})
+
+test('formatSignedKb formats a positive fractional kilobyte with one decimal place', () => {
+  assert.equal(formatSignedKb(5 * 1024 - 102), '+4.9kb')
+})
+
+test('formatSignedKb formats zero as positive', () => {
+  assert.equal(formatSignedKb(0), '+0kb')
+})
+
+test('formatSignedKb rounds to one decimal place', () => {
+  // 1500 bytes = 1.4648... kB → rounds to +1.5kb
+  assert.equal(formatSignedKb(1500), '+1.5kb')
+})
+
+test('describeTrend returns stable when rate is exactly zero', () => {
+  assert.equal(describeTrend(0), 'stable')
+})
+
+test('describeTrend returns stable when rate is below 1 byte/week', () => {
+  assert.equal(describeTrend(0.5), 'stable')
+  assert.equal(describeTrend(-0.9), 'stable')
+})
+
+test('describeTrend returns growing for positive rate at or above 1 byte/week', () => {
+  assert.equal(describeTrend(1), 'growing')
+  assert.equal(describeTrend(10_000), 'growing')
+})
+
+test('describeTrend returns shrinking for negative rate at or below -1 byte/week', () => {
+  assert.equal(describeTrend(-1), 'shrinking')
+  assert.equal(describeTrend(-50_000), 'shrinking')
+})
 
 test('saveHistoryEntry writes the latest 30 entries and sorts packages by size', () => {
   const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))

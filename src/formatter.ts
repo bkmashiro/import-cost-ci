@@ -17,11 +17,11 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} kB`
 }
 
-function sortResultsBySize(results: ImportResult[]): ImportResult[] {
+export function sortResultsBySize(results: ImportResult[]): ImportResult[] {
   return [...results].sort((left, right) => right.bytes - left.bytes || left.pkg.localeCompare(right.pkg))
 }
 
-function buildTreemapBar(bytes: number, totalBytes: number): string {
+export function buildTreemapBar(bytes: number, totalBytes: number): string {
   if (totalBytes <= 0) {
     return '░'.repeat(TREEMAP_WIDTH)
   }

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-import { buildSummaryLine, formatResultsMarkdown, formatSize, formatTreemap } from '../src/formatter.ts'
+import { buildSummaryLine, buildTreemapBar, formatResultsMarkdown, formatSize, formatTreemap, sortResultsBySize } from '../src/formatter.ts'
 
 function createMockedCli(size: number): { dir: string; entry: string; fixture: string } {
   const dir = mkdtempSync(join(process.cwd(), 'import-cost-ci-cli-'))
@@ -117,6 +117,73 @@ test('does not exit with code 1 in --no-fail mode when imports exceed the limit'
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('sortResultsBySize sorts by bytes descending', () => {
+  const results = [
+    { pkg: 'small', bytes: 100, exceeded: false },
+    { pkg: 'large', bytes: 5000, exceeded: false },
+    { pkg: 'medium', bytes: 2000, exceeded: false },
+  ]
+  const sorted = sortResultsBySize(results)
+
+  assert.equal(sorted[0].pkg, 'large')
+  assert.equal(sorted[1].pkg, 'medium')
+  assert.equal(sorted[2].pkg, 'small')
+})
+
+test('sortResultsBySize breaks ties alphabetically', () => {
+  const results = [
+    { pkg: 'zebra', bytes: 1000, exceeded: false },
+    { pkg: 'apple', bytes: 1000, exceeded: false },
+    { pkg: 'mango', bytes: 1000, exceeded: false },
+  ]
+  const sorted = sortResultsBySize(results)
+
+  assert.equal(sorted[0].pkg, 'apple')
+  assert.equal(sorted[1].pkg, 'mango')
+  assert.equal(sorted[2].pkg, 'zebra')
+})
+
+test('sortResultsBySize does not mutate the original array', () => {
+  const results = [
+    { pkg: 'b', bytes: 100, exceeded: false },
+    { pkg: 'a', bytes: 200, exceeded: false },
+  ]
+  const original = [...results]
+  sortResultsBySize(results)
+
+  assert.deepEqual(results, original)
+})
+
+test('sortResultsBySize returns empty array for empty input', () => {
+  assert.deepEqual(sortResultsBySize([]), [])
+})
+
+test('buildTreemapBar returns all empty blocks when totalBytes is zero', () => {
+  assert.equal(buildTreemapBar(0, 0), '░'.repeat(20))
+})
+
+test('buildTreemapBar returns all empty blocks when totalBytes is negative', () => {
+  assert.equal(buildTreemapBar(100, -1), '░'.repeat(20))
+})
+
+test('buildTreemapBar returns fully filled bar when bytes equals totalBytes', () => {
+  assert.equal(buildTreemapBar(1000, 1000), '█'.repeat(20))
+})
+
+test('buildTreemapBar returns proportional bar for 50% usage', () => {
+  const bar = buildTreemapBar(500, 1000)
+
+  assert.equal(bar, '█'.repeat(10) + '░'.repeat(10))
+  assert.equal(bar.length, 20)
+})
+
+test('buildTreemapBar clamps filled blocks to bar width', () => {
+  const bar = buildTreemapBar(9999, 1000)
+
+  assert.equal(bar.length, 20)
+  assert.equal(bar, '█'.repeat(20))
 })
 
 test('prints JSON output with the --json flag', () => {
