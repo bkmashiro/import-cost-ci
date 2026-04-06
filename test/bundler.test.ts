@@ -220,6 +220,69 @@ test('vite adapter: size limit is applied to the vite-measured byte count', () =
   }
 })
 
+// vite: empty output guard
+//
+// measureWithVite uses `import('vite')` internally. We test the guards by
+// patching the bundler source in a subprocess: replace `import('vite')` with
+// a local mock file that returns a controlled result, then call measureImportSize
+// and assert the expected error propagates.
+
+function createViteGuardTestScript(buildReturnExpr: string): { dir: string; script: string } {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-vite-guard-test-'))
+  const viteMock = join(dir, 'vite-mock.ts')
+  const bundlerCopy = join(dir, 'bundler.ts')
+  const runScript = join(dir, 'run.ts')
+
+  writeFileSync(viteMock, `export async function build(_opts?: unknown) { return ${buildReturnExpr} }\n`)
+
+  const bundlerSource = readFileSync(new URL('../src/bundler.ts', import.meta.url), 'utf8')
+  writeFileSync(
+    bundlerCopy,
+    bundlerSource.replace(
+      `await import('vite')`,
+      `await import(${JSON.stringify(pathToFileURL(viteMock).href)})`
+    )
+  )
+
+  writeFileSync(
+    runScript,
+    `import { measureImportSize } from ${JSON.stringify(pathToFileURL(bundlerCopy).href)}\n` +
+    `measureImportSize('some-pkg', 'vite')\n` +
+    `  .then(() => { process.stderr.write('ERROR: expected rejection but resolved\\n'); process.exit(1) })\n` +
+    `  .catch((e: Error) => { process.stderr.write(e.message + '\\n'); process.exit(1) })\n`
+  )
+
+  return { dir, script: runScript }
+}
+
+test('vite adapter: throws when build returns empty output array', () => {
+  const { dir, script } = createViteGuardTestScript('{ output: [] }')
+  try {
+    const result = spawnSync(
+      'pnpm', ['exec', 'tsx', script],
+      { cwd: process.cwd(), encoding: 'utf8' }
+    )
+    assert.equal(result.status, 1, `expected exit 1:\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    assert.match(result.stderr, /Vite produced no output chunks for package: some-pkg/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('vite adapter: throws when output chunk has neither code nor source', () => {
+  const { dir, script } = createViteGuardTestScript('{ output: [{ type: "chunk" }] }')
+  try {
+    const result = spawnSync(
+      'pnpm', ['exec', 'tsx', script],
+      { cwd: process.cwd(), encoding: 'utf8' }
+    )
+    assert.equal(result.status, 1, `expected exit 1:\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+    assert.match(result.stderr, /Vite produced no output chunks for package: some-pkg/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // rollup
 
 test('rollup adapter: CLI forwards --bundler rollup to measureImportSize', () => {

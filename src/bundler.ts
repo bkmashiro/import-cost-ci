@@ -84,8 +84,14 @@ async function measureWithVite(pkg: string): Promise<number> {
   }) as any
 
   const output = Array.isArray(result) ? result[0].output : result.output
+  if (!output || output.length === 0) {
+    throw new Error(`Vite produced no output chunks for package: ${pkg}`)
+  }
   const chunk = output.find((o: any) => o.type === 'chunk') ?? output[0]
-  const code = chunk.code ?? chunk.source ?? ''
+  if (chunk.code == null && chunk.source == null) {
+    throw new Error(`Vite produced no output chunks for package: ${pkg}`)
+  }
+  const code = chunk.code ?? chunk.source
   return zlib.gzipSync(Buffer.from(code)).length
 }
 
