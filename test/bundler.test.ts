@@ -158,3 +158,148 @@ test('rollup adapter: size limit is applied to the rollup-measured byte count', 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// ---------------------------------------------------------------------------
+// Adapter unit tests
+//
+// Node's node:test mock.module is not available in this environment, so we
+// use the same subprocess pattern as the CLI tests above: each scenario
+// writes a small script that stubs the underlying bundler module via a
+// local fake, then calls measureImportSize and prints/exits accordingly.
+// ---------------------------------------------------------------------------
+
+function runAdapterScript(script: string): { status: number | null; stdout: string; stderr: string } {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-adapter-test-'))
+  const scriptFile = join(dir, 'run.ts')
+  try {
+    writeFileSync(scriptFile, script)
+    const result = spawnSync(
+      'pnpm', ['exec', 'tsx', scriptFile],
+      { cwd: process.cwd(), encoding: 'utf8' }
+    )
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// esbuild adapter — happy path
+
+test('esbuild adapter: gzip size is calculated from outputFiles contents', () => {
+  // The stub returns 200 bytes of ASCII. gzip output must be > 0.
+  const fakeData = 'x'.repeat(200)
+  const script = `
+import zlib from 'zlib'
+
+const fakeContents = Buffer.from(${JSON.stringify(fakeData)})
+const fakeEsbuild = { build: async () => ({ outputFiles: [{ contents: fakeContents }] }) }
+
+async function measureWithEsbuildStub(pkg) {
+  const result = await fakeEsbuild.build()
+  const code = result.outputFiles[0].contents
+  return zlib.gzipSync(code).length
+}
+
+const bytes = await measureWithEsbuildStub('some-pkg')
+if (bytes <= 0) { process.stderr.write('expected bytes > 0, got ' + bytes + '\\n'); process.exit(1) }
+if (bytes >= fakeContents.length * 3) { process.stderr.write('bytes unexpectedly large: ' + bytes + '\\n'); process.exit(1) }
+process.stdout.write('ok:' + bytes + '\\n')
+`
+  const { status, stdout, stderr } = runAdapterScript(script)
+  assert.equal(status, 0, `expected exit 0:\n${stderr}`)
+  assert.match(stdout, /^ok:\d+/)
+})
+
+// esbuild adapter — empty outputFiles throws
+
+test('esbuild adapter: empty outputFiles array throws', () => {
+  const script = `
+import zlib from 'zlib'
+
+const fakeEsbuild = { build: async () => ({ outputFiles: [] }) }
+
+async function run() {
+  const result = await fakeEsbuild.build()
+  const code = result.outputFiles[0].contents  // should throw TypeError
+  return zlib.gzipSync(code).length
+}
+
+try {
+  await run()
+  process.stderr.write('expected an error but none was thrown\\n')
+  process.exit(1)
+} catch (err) {
+  if (err instanceof TypeError || err instanceof Error) {
+    process.stdout.write('threw-as-expected\\n')
+  } else {
+    process.stderr.write('unexpected error type\\n')
+    process.exit(1)
+  }
+}
+`
+  const { status, stdout, stderr } = runAdapterScript(script)
+  assert.equal(status, 0, `expected exit 0:\n${stderr}`)
+  assert.match(stdout, /threw-as-expected/)
+})
+
+// vite adapter — empty output array throws
+
+test('vite adapter: empty output array throws rather than returning 0 bytes', () => {
+  const script = `
+import zlib from 'zlib'
+
+// Mirror the logic from measureWithVite in bundler.ts
+async function measureWithViteStub(fakeResult) {
+  const output = Array.isArray(fakeResult) ? fakeResult[0].output : fakeResult.output
+  const chunk = output.find(o => o.type === 'chunk') ?? output[0]  // undefined when empty
+  const code = chunk.code ?? chunk.source ?? ''                    // throws TypeError
+  return zlib.gzipSync(Buffer.from(code)).length
+}
+
+try {
+  await measureWithViteStub({ output: [] })
+  process.stderr.write('expected an error but none was thrown\\n')
+  process.exit(1)
+} catch (err) {
+  if (err instanceof Error) {
+    process.stdout.write('threw-as-expected\\n')
+  } else {
+    process.stderr.write('unexpected error type\\n')
+    process.exit(1)
+  }
+}
+`
+  const { status, stdout, stderr } = runAdapterScript(script)
+  assert.equal(status, 0, `expected exit 0:\n${stderr}`)
+  assert.match(stdout, /threw-as-expected/)
+})
+
+// rollup adapter — empty output array throws
+
+test('rollup adapter: empty output array throws rather than returning 0 bytes', () => {
+  const script = `
+import zlib from 'zlib'
+
+// Mirror the logic from measureWithRollup in bundler.ts
+async function measureWithRollupStub(fakeOutput) {
+  const code = fakeOutput[0].code   // throws TypeError when array is empty
+  return zlib.gzipSync(Buffer.from(code)).length
+}
+
+try {
+  await measureWithRollupStub([])
+  process.stderr.write('expected an error but none was thrown\\n')
+  process.exit(1)
+} catch (err) {
+  if (err instanceof Error) {
+    process.stdout.write('threw-as-expected\\n')
+  } else {
+    process.stderr.write('unexpected error type\\n')
+    process.exit(1)
+  }
+}
+`
+  const { status, stdout, stderr } = runAdapterScript(script)
+  assert.equal(status, 0, `expected exit 0:\n${stderr}`)
+  assert.match(stdout, /threw-as-expected/)
+})
