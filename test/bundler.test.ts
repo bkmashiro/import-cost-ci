@@ -522,6 +522,49 @@ function runAdapterScript(script: string): { status: number | null; stdout: stri
   }
 }
 
+// ---------------------------------------------------------------------------
+// Empty-output guard tests
+//
+// Each adapter is tested by spawning a subprocess that runs a patched copy of
+// bundler.ts where the real dynamic import is replaced with a stub returning
+// an empty output array. The subprocess prints the caught error message to
+// stdout so we can assert the correct descriptive error is thrown.
+//
+// This follows the same subprocess-stub pattern used for the CLI tests above.
+// ---------------------------------------------------------------------------
+
+function runGuardTest(bundlerSrc: string, bundlerName: string, errorPattern: RegExp): void {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-guard-test-'))
+  const patchedBundler = join(dir, 'bundler.ts')
+  const runner = join(dir, 'runner.ts')
+
+  writeFileSync(patchedBundler, bundlerSrc)
+  writeFileSync(
+    runner,
+    `import { measureImportSize } from '${pathToFileURL(patchedBundler).href}'
+try {
+  await measureImportSize('some-pkg', '${bundlerName}')
+  process.stdout.write('NO_ERROR_THROWN\\n')
+  process.exit(1)
+} catch (e) {
+  process.stdout.write((e as Error).message + '\\n')
+}
+`
+  )
+
+  try {
+    const tsxBin = join(process.cwd(), 'node_modules/.bin/tsx')
+    const result = spawnSync(tsxBin, [runner], { cwd: process.cwd(), encoding: 'utf8' })
+    assert.match(
+      result.stdout,
+      errorPattern,
+      `expected error matching ${errorPattern}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
 // esbuild adapter — happy path
 
 test('esbuild adapter: gzip size is calculated from outputFiles contents', () => {
@@ -641,4 +684,41 @@ try {
   const { status, stdout, stderr } = runAdapterScript(script)
   assert.equal(status, 0, `expected exit 0:\n${stderr}`)
   assert.match(stdout, /threw-as-expected/)
+})
+
+const bundlerSrcBase = readFileSync(new URL('../src/bundler.ts', import.meta.url), 'utf8')
+
+test('esbuild adapter: throws descriptive error when outputFiles is empty', () => {
+  const src = bundlerSrcBase.replace(
+    `const { default: esbuild } = await import('esbuild')`,
+    `const esbuild = { build: async () => ({ outputFiles: [] }) }`
+  )
+  runGuardTest(src, 'esbuild', /esbuild returned no output files/)
+})
+
+test('vite adapter: throws descriptive error when output array is empty', () => {
+  const src = bundlerSrcBase.replace(
+    `const { build } = await import('vite')`,
+    `const build = async () => ({ output: [] })`
+  )
+  runGuardTest(src, 'vite', /vite returned no output files/)
+})
+
+test('rollup adapter: throws descriptive error when output array is empty', () => {
+  const src = bundlerSrcBase
+    .replace(
+      `const { rollup } = await import('rollup')`,
+      `const rollup = async () => ({ generate: async () => ({ output: [] }), close: async () => {} })`
+    )
+    // stub out the plugins that would try to resolve real modules
+    .replace(
+      `const { nodeResolve } = await import('@rollup/plugin-node-resolve')`,
+      `const nodeResolve = () => ({})`
+    )
+    .replace(
+      `const terserMod = await import('@rollup/plugin-terser')
+  const terser = (terserMod as any).default ?? terserMod`,
+      `const terser = () => ({})`
+    )
+  runGuardTest(src, 'rollup', /rollup returned no output chunks/)
 })
