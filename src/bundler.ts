@@ -8,7 +8,7 @@ export type BundlerName = 'esbuild' | 'webpack' | 'vite' | 'rollup'
 async function measureWithEsbuild(pkg: string): Promise<number> {
   const { default: esbuild } = await import('esbuild')
   const result = await esbuild.build({
-    stdin: { contents: `import "${pkg}"`, loader: 'js' },
+    stdin: { contents: `import "${pkg}"`, loader: 'js', resolveDir: process.cwd() },
     bundle: true,
     minify: true,
     platform: 'browser',
