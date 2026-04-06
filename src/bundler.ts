@@ -49,15 +49,19 @@ async function measureWithWebpack(pkg: string): Promise<number> {
       compiler.outputFileSystem = mfs
 
       compiler.run((err: Error | null, stats: any) => {
-        compiler.close(() => {
-          if (err) { reject(err); return }
-          if (stats?.hasErrors()) { reject(new Error(stats.toString())); return }
-          try {
-            const buf = mfs.readFileSync('/out/bundle.js') as Buffer
-            resolve(buf)
-          } catch (e) {
-            reject(e)
-          }
+        if (err) { compiler.close(() => {}); reject(err); return }
+        if (stats?.hasErrors()) { compiler.close(() => {}); reject(new Error(stats.toString())); return }
+
+        let buf: Buffer
+        try {
+          buf = mfs.readFileSync('/out/bundle.js') as Buffer
+        } catch (e) {
+          compiler.close(() => {}); reject(e); return
+        }
+
+        compiler.close((closeErr: Error | null | undefined) => {
+          if (closeErr) { reject(closeErr); return }
+          resolve(buf)
         })
       })
     })

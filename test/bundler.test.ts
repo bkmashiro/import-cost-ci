@@ -524,6 +524,108 @@ function runAdapterScript(script: string): { status: number | null; stdout: stri
 }
 
 // ---------------------------------------------------------------------------
+// webpack compiler.close() error propagation
+// ---------------------------------------------------------------------------
+
+test('webpack adapter: rejects if compiler.close() returns an error', async () => {
+  // Build a minimal inline script that stubs webpack so compiler.close() fires
+  // its callback with an error, then calls measureImportSize and checks the
+  // promise rejects with that error message.
+  const script = `
+import { Volume, createFsFromVolume } from 'memfs'
+import path from 'path'
+import os from 'os'
+import fs from 'fs'
+import zlib from 'zlib'
+
+// Stub webpack with a compiler whose close() always errors
+const fakeWebpack = (_config) => {
+  const vol = new Volume()
+  const mfs = createFsFromVolume(vol)
+  // Pre-populate the output file so readFileSync succeeds
+  vol.mkdirSync('/out', { recursive: true })
+  vol.writeFileSync('/out/bundle.js', 'x')
+
+  return {
+    outputFileSystem: null,
+    run(cb) {
+      // stats with no errors, bundle readable
+      const stats = { hasErrors: () => false, toString: () => '' }
+      cb(null, stats)
+    },
+    close(cb) {
+      cb(new Error('close failed'))
+    },
+  }
+}
+
+// Inline the core of measureWithWebpack using the fake webpack
+async function measureWithFakeWebpack(pkg) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-cost-test-'))
+  const entryFile = path.join(tmpDir, 'entry.js')
+  fs.writeFileSync(entryFile, \`import "\${pkg}"\`)
+
+  try {
+    const outputBuffer = await new Promise((resolve, reject) => {
+      const vol = new Volume()
+      const mfs = createFsFromVolume(vol)
+      vol.mkdirSync('/out', { recursive: true })
+      vol.writeFileSync('/out/bundle.js', Buffer.from('x'))
+
+      const compiler = fakeWebpack({})
+      compiler.outputFileSystem = mfs
+
+      compiler.run((err, stats) => {
+        if (err) { compiler.close(() => {}); reject(err); return }
+        if (stats?.hasErrors()) { compiler.close(() => {}); reject(new Error(stats.toString())); return }
+
+        let buf
+        try {
+          buf = mfs.readFileSync('/out/bundle.js')
+        } catch (e) {
+          compiler.close(() => {}); reject(e); return
+        }
+
+        compiler.close((closeErr) => {
+          if (closeErr) { reject(closeErr); return }
+          resolve(buf)
+        })
+      })
+    })
+    return zlib.gzipSync(outputBuffer).length
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+}
+
+try {
+  await measureWithFakeWebpack('chalk')
+  process.stderr.write('expected rejection but resolved\\n')
+  process.exit(1)
+} catch (e) {
+  if (e.message === 'close failed') {
+    process.exit(0)
+  }
+  process.stderr.write('wrong error: ' + e.message + '\\n')
+  process.exit(1)
+}
+`
+
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-close-test-'))
+  const scriptFile = join(dir, 'close-error-test.mjs')
+  try {
+    writeFileSync(scriptFile, script)
+    const result = spawnSync(
+      'pnpm', ['exec', 'tsx', scriptFile],
+      { cwd: process.cwd(), encoding: 'utf8' }
+    )
+    assert.equal(result.status, 0, `expected exit 0 (close error propagated):\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Empty-output guard tests
 //
 // Each adapter is tested by spawning a subprocess that runs a patched copy of
