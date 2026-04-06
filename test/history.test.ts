@@ -210,6 +210,190 @@ test('shouldAutoEnableHistory detects pushes to main from the GitHub event paylo
   }
 })
 
+// loadHistory edge cases
+test('loadHistory returns [] when the history file is absent', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    assert.deepEqual(loadHistory(dir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory returns [] for a file containing invalid JSON', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    writeFileSync(getHistoryFilePath(dir), '{ not json }')
+    assert.deepEqual(loadHistory(dir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory silently drops entries that fail schema validation', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    writeFileSync(
+      getHistoryFilePath(dir),
+      JSON.stringify({
+        entries: [
+          { date: '2024-01-01', totalSize: 1000, packages: [] },
+          { date: 42, totalSize: 'bad', packages: null },
+          null,
+        ],
+      })
+    )
+    const history = loadHistory(dir)
+    assert.equal(history.length, 1)
+    assert.equal(history[0].date, '2024-01-01')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory handles legacy bare-array format', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    writeFileSync(
+      getHistoryFilePath(dir),
+      JSON.stringify([{ date: '2024-01-01', totalSize: 500, packages: [] }])
+    )
+    const history = loadHistory(dir)
+    assert.equal(history.length, 1)
+    assert.equal(history[0].totalSize, 500)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory silently drops invalid packages within a valid entry', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    writeFileSync(
+      getHistoryFilePath(dir),
+      JSON.stringify({
+        entries: [
+          {
+            date: '2024-01-01',
+            totalSize: 1000,
+            packages: [
+              { name: 'good', size: 500 },
+              { name: 123, size: 'bad' },
+              null,
+            ],
+          },
+        ],
+      })
+    )
+    const history = loadHistory(dir)
+    assert.equal(history[0].packages.length, 1)
+    assert.equal(history[0].packages[0].name, 'good')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// saveHistoryEntry edge cases
+test('saveHistoryEntry creates the history file if it does not exist', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    const entries = saveHistoryEntry([{ pkg: 'react', bytes: 1024, exceeded: false }], dir, '2024-01-01')
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0].date, '2024-01-01')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('saveHistoryEntry recovers from a corrupt existing file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+  try {
+    writeFileSync(getHistoryFilePath(dir), 'NOT JSON')
+    const entries = saveHistoryEntry([{ pkg: 'react', bytes: 512, exceeded: false }], dir, '2024-02-01')
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0].date, '2024-02-01')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// formatHistoryReport edge cases
+test('formatHistoryReport with no entries returns a stable "no history" message', () => {
+  const output = formatHistoryReport([])
+  assert.match(output, /no history yet/)
+  assert.match(output, /Trend: not enough data/)
+})
+
+test('formatHistoryReport with a single entry shows "not enough data" trend', () => {
+  const output = formatHistoryReport([{ date: '2024-03-01', totalSize: 10_000, packages: [] }])
+  assert.match(output, /Current: 9\.8 kB/)
+  assert.match(output, /no previous runs/)
+  assert.match(output, /Trend: not enough data/)
+})
+
+test('formatHistoryReport with two entries on the same date shows "not enough data" trend', () => {
+  const output = formatHistoryReport([
+    { date: '2024-03-01', totalSize: 12_000, packages: [] },
+    { date: '2024-03-01', totalSize: 10_000, packages: [] },
+  ])
+  assert.match(output, /Trend: not enough data/)
+})
+
+test('formatHistoryReport marks shrinking trend when total size decreased', () => {
+  const output = formatHistoryReport([
+    { date: '2024-03-08', totalSize: 90_000, packages: [] },
+    { date: '2024-03-01', totalSize: 100_000, packages: [] },
+  ])
+  assert.match(output, /shrinking/)
+})
+
+test('formatHistoryReport marks stable trend for sub-byte-per-week change', () => {
+  const output = formatHistoryReport([
+    { date: '2024-03-08', totalSize: 100_000, packages: [] },
+    { date: '2024-03-01', totalSize: 100_000, packages: [] },
+  ])
+  assert.match(output, /stable/)
+})
+
+// shouldAutoEnableHistory edge cases
+test('shouldAutoEnableHistory returns false when GITHUB_EVENT_NAME is not push', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-event-'))
+  const eventPath = join(dir, 'event.json')
+  writeFileSync(eventPath, JSON.stringify({ ref: 'refs/heads/main' }))
+  try {
+    withEnv({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: eventPath }, () => {
+      assert.equal(shouldAutoEnableHistory(), false)
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('shouldAutoEnableHistory returns false when GITHUB_EVENT_PATH is unset', () => {
+  withEnv({ GITHUB_EVENT_NAME: 'push', GITHUB_EVENT_PATH: undefined }, () => {
+    assert.equal(shouldAutoEnableHistory(), false)
+  })
+})
+
+test('shouldAutoEnableHistory returns false when event file does not exist', () => {
+  withEnv({ GITHUB_EVENT_NAME: 'push', GITHUB_EVENT_PATH: '/nonexistent/path/event.json' }, () => {
+    assert.equal(shouldAutoEnableHistory(), false)
+  })
+})
+
+test('shouldAutoEnableHistory returns false when event file contains invalid JSON', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-event-'))
+  const eventPath = join(dir, 'event.json')
+  writeFileSync(eventPath, 'NOT JSON')
+  try {
+    withEnv({ GITHUB_EVENT_NAME: 'push', GITHUB_EVENT_PATH: eventPath }, () => {
+      assert.equal(shouldAutoEnableHistory(), false)
+    })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('shouldAutoEnableHistory ignores non-main refs', () => {
   const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-event-'))
   const eventPath = join(dir, 'event.json')
