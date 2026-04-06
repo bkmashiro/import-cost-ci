@@ -471,6 +471,35 @@ test('CLI accepts uppercase KB unit in --limit and treats package as passing', (
   }
 })
 
+test('CLI passes INPUT_BUNDLER to --bundler when set', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_BUNDLER: 'rollup',
+        INPUT_NO_FAIL: 'true',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:rollup/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('CLI accepts uppercase MB unit in --limit and treats package as passing', () => {
   // 1500 bytes < 10 MB (10_000_000 bytes) — should pass
   const { dir, entry, fixture } = createMockedCli()
@@ -482,6 +511,34 @@ test('CLI accepts uppercase MB unit in --limit and treats package as passing', (
     })
 
     assert.equal(result.status, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI defaults to esbuild bundler when INPUT_BUNDLER is not set', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_NO_FAIL: 'true',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:esbuild/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -500,6 +557,35 @@ test('CLI accepts uppercase B unit in --limit and treats package as failing', ()
 
     assert.equal(result.status, 1)
     assert.match(result.stdout, /exceeded the 1B limit/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI forwards unknown bundler value from INPUT_BUNDLER without validation', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_BUNDLER: 'unknown-bundler',
+        INPUT_NO_FAIL: 'true',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:unknown-bundler/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
