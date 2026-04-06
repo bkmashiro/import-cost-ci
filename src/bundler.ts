@@ -15,6 +15,7 @@ async function measureWithEsbuild(pkg: string): Promise<number> {
     write: false,
     format: 'esm',
   })
+  if (!result.outputFiles?.length) throw new Error('esbuild returned no output files')
   const code = result.outputFiles[0].contents
   return zlib.gzipSync(code).length
 }
@@ -111,8 +112,11 @@ async function measureWithRollup(pkg: string): Promise<number> {
   const { output } = await bundle.generate({ format: 'esm' })
   await bundle.close()
 
-  const code = output[0].code
-  return zlib.gzipSync(Buffer.from(code)).length
+  if (!output.length) throw new Error('rollup returned no output chunks')
+  const chunk = output[0]
+  if (chunk.type !== 'chunk') throw new Error('rollup output[0] is not a chunk')
+  if (!chunk.code) throw new Error('rollup chunk has no code')
+  return zlib.gzipSync(Buffer.from(chunk.code)).length
 }
 
 export async function measureImportSize(pkg: string, bundler: BundlerName = 'esbuild'): Promise<number> {

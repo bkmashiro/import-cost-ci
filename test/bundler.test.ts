@@ -20,6 +20,114 @@ test('measureImportSize throws for an unknown bundler name', async () => {
 })
 
 // ---------------------------------------------------------------------------
+// Guard tests: empty output arrays
+//
+// Each test spawns a subprocess that stubs the relevant bundler module to
+// return an empty/invalid output, then asserts that measureImportSize throws
+// with the expected error message.  The subprocess pattern mirrors what the
+// CLI integration tests do below.
+// ---------------------------------------------------------------------------
+
+function spawnGuardHarness(bundlerStubSrc: string, adapter: string): { status: number | null; stderr: string } {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-guard-test-'))
+  try {
+    const bundlerShim = join(dir, 'bundler-shim.ts')
+    const harness = join(dir, 'harness.ts')
+
+    // Write the stub that replaces the real bundler module internals.
+    writeFileSync(bundlerShim, bundlerStubSrc)
+
+    // The harness rewrites bundler.ts imports to use the shim, then calls
+    // measureImportSize and checks the thrown error.
+    const bundlerSrc = readFileSync(new URL('../src/bundler.ts', import.meta.url), 'utf8')
+    const shimUrl = pathToFileURL(bundlerShim).href
+    const patched = bundlerSrc
+      .replace(/await import\('esbuild'\)/, `await import(${JSON.stringify(shimUrl)})`)
+      .replace(/await import\('rollup'\)/, `await import(${JSON.stringify(shimUrl)})`)
+
+    const patchedBundler = join(dir, 'bundler-patched.ts')
+    writeFileSync(patchedBundler, patched)
+
+    writeFileSync(harness, `
+import { measureImportSize } from ${JSON.stringify(pathToFileURL(patchedBundler).href)}
+try {
+  await measureImportSize('some-pkg', ${JSON.stringify(adapter)})
+  process.stderr.write('ERROR: expected throw but got none\\n')
+  process.exit(2)
+} catch (e) {
+  process.stdout.write(e.message + '\\n')
+  process.exit(0)
+}
+`)
+
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx/esm', harness],
+      { cwd: process.cwd(), encoding: 'utf8' }
+    )
+    return { status: result.status, stderr: result.stderr + result.stdout }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+test('esbuild guard: throws when outputFiles is empty', () => {
+  const stub = `
+export default {
+  build: async () => ({ outputFiles: [] }),
+}
+`
+  const { status, stderr } = spawnGuardHarness(stub, 'esbuild')
+  assert.equal(status, 0, `subprocess failed:\n${stderr}`)
+  assert.match(stderr, /esbuild returned no output files/)
+})
+
+test('rollup guard: throws when output is empty', () => {
+  const stub = `
+export async function rollup() {
+  return {
+    generate: async () => ({ output: [] }),
+    close: async () => {},
+  }
+}
+export { rollup as default }
+`
+  // nodeResolve and terser are real plugins; they won't be called since we
+  // stub rollup itself, but the import calls still need to succeed.
+  const { status, stderr } = spawnGuardHarness(stub, 'rollup')
+  assert.equal(status, 0, `subprocess failed:\n${stderr}`)
+  assert.match(stderr, /rollup returned no output chunks/)
+})
+
+test('rollup guard: throws when output[0] is not a chunk', () => {
+  const stub = `
+export async function rollup() {
+  return {
+    generate: async () => ({ output: [{ type: 'asset', fileName: 'x.js', source: '' }] }),
+    close: async () => {},
+  }
+}
+`
+  const { status, stderr } = spawnGuardHarness(stub, 'rollup')
+  assert.equal(status, 0, `subprocess failed:\n${stderr}`)
+  assert.match(stderr, /rollup output\[0\] is not a chunk/)
+})
+
+test('rollup guard: throws when chunk.code is falsy', () => {
+  const stub = `
+export async function rollup() {
+  return {
+    generate: async () => ({ output: [{ type: 'chunk', code: '' }] }),
+    close: async () => {},
+  }
+}
+`
+  const { status, stderr } = spawnGuardHarness(stub, 'rollup')
+  assert.equal(status, 0, `subprocess failed:\n${stderr}`)
+  assert.match(stderr, /rollup chunk has no code/)
+})
+
+// ---------------------------------------------------------------------------
 // Per-adapter CLI integration tests
 //
 // Each bundler adapter is tested via a subprocess that:
