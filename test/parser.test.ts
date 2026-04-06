@@ -136,3 +136,18 @@ test('extracts imports using both single and double quotes in the same file', ()
   assert.ok(imports.includes('single-quote-pkg'))
   assert.ok(imports.includes('double-quote-pkg'))
 })
+
+test('returns empty array for source with no imports', () => {
+  assert.deepEqual(extractImports('const x = 1\nexport { x }'), [])
+})
+
+test('ignores absolute path imports', () => {
+  const imports = extractImports("import foo from '/absolute/path'")
+  assert.deepEqual(imports, [])
+})
+
+test('deduplicates static and dynamic imports of the same package', () => {
+  const source = "import foo from 'pkg'\nconst m = import('pkg')"
+  const imports = extractImports(source)
+  assert.equal(imports.filter((p) => p === 'pkg').length, 1)
+})

@@ -219,6 +219,148 @@ test('maybePostGitHubComment updates an existing import-cost-ci comment', async 
   }
 })
 
+test('maybePostGitHubComment is a no-op when GITHUB_TOKEN is absent', async () => {
+  const previousFetch = globalThis.fetch
+  let fetchCalled = false
+  globalThis.fetch = async () => {
+    fetchCalled = true
+    return new Response(null, { status: 200 })
+  }
+
+  try {
+    await withEnv({ GITHUB_TOKEN: undefined }, async () => {
+      await maybePostGitHubComment([{ pkg: 'chalk', bytes: 700, exceeded: false }], 50_000)
+    })
+    assert.equal(fetchCalled, false)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('maybePostGitHubComment is a no-op when parsePullRequestRef returns null', async () => {
+  const previousFetch = globalThis.fetch
+  let fetchCalled = false
+  globalThis.fetch = async () => {
+    fetchCalled = true
+    return new Response(null, { status: 200 })
+  }
+
+  try {
+    await withEnv(
+      {
+        GITHUB_TOKEN: 'test-token',
+        GITHUB_EVENT_NAME: 'push',
+        GITHUB_REPOSITORY: 'acme/repo',
+        GITHUB_EVENT_PATH: undefined,
+      },
+      async () => {
+        await maybePostGitHubComment([{ pkg: 'chalk', bytes: 700, exceeded: false }], 50_000)
+      }
+    )
+    assert.equal(fetchCalled, false)
+  } finally {
+    globalThis.fetch = previousFetch
+  }
+})
+
+test('parsePullRequestRef returns null when GITHUB_EVENT_PATH is missing', () =>
+  withEnv(
+    {
+      GITHUB_REPOSITORY: 'acme/repo',
+      GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_EVENT_PATH: undefined,
+    },
+    () => {
+      assert.equal(parsePullRequestRef(), null)
+    }
+  ))
+
+test('parsePullRequestRef returns null when GITHUB_REPOSITORY has no slash', () => {
+  const event = createEventFile({ pull_request: { number: 1 } })
+
+  try {
+    return withEnv(
+      {
+        GITHUB_REPOSITORY: 'noslash',
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_EVENT_PATH: event.path,
+      },
+      () => {
+        assert.equal(parsePullRequestRef(), null)
+      }
+    )
+  } finally {
+    rmSync(event.dir, { recursive: true, force: true })
+  }
+})
+
+test('parsePullRequestRef returns null when event payload has no pull_request number', () => {
+  const event = createEventFile({ pull_request: {} })
+
+  try {
+    return withEnv(
+      {
+        GITHUB_REPOSITORY: 'acme/repo',
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_EVENT_PATH: event.path,
+      },
+      () => {
+        assert.equal(parsePullRequestRef(), null)
+      }
+    )
+  } finally {
+    rmSync(event.dir, { recursive: true, force: true })
+  }
+})
+
+test('parsePullRequestRef accepts pull_request_target event', () => {
+  const event = createEventFile({ pull_request: { number: 99 } })
+
+  try {
+    return withEnv(
+      {
+        GITHUB_REPOSITORY: 'acme/repo',
+        GITHUB_EVENT_NAME: 'pull_request_target',
+        GITHUB_EVENT_PATH: event.path,
+      },
+      () => {
+        const ref = parsePullRequestRef()
+        assert.ok(ref !== null)
+        assert.equal(ref.issueNumber, 99)
+      }
+    )
+  } finally {
+    rmSync(event.dir, { recursive: true, force: true })
+  }
+})
+
+test('maybePostGitHubComment throws when GitHub API returns an error', async () => {
+  const event = createEventFile({ pull_request: { number: 42 } })
+  const previousFetch = globalThis.fetch
+
+  globalThis.fetch = async () => new Response('Forbidden', { status: 403, statusText: 'Forbidden' })
+
+  try {
+    await withEnv(
+      {
+        GITHUB_REPOSITORY: 'acme/import-cost-ci',
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_EVENT_PATH: event.path,
+        GITHUB_TOKEN: 'test-token',
+      },
+      async () => {
+        await assert.rejects(
+          () => maybePostGitHubComment([{ pkg: 'chalk', bytes: 700, exceeded: false }], 50_000),
+          /GitHub API request failed: 403/
+        )
+      }
+    )
+  } finally {
+    globalThis.fetch = previousFetch
+    rmSync(event.dir, { recursive: true, force: true })
+  }
+})
+
 test('maybePostGitHubComment creates a new comment when no existing marker is found', async () => {
   const event = createEventFile({ pull_request: { number: 42 } })
   const previousFetch = globalThis.fetch
