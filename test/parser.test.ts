@@ -151,3 +151,49 @@ test('deduplicates static and dynamic imports of the same package', () => {
   const imports = extractImports(source)
   assert.equal(imports.filter((p) => p === 'pkg').length, 1)
 })
+
+test('extracts imports with extra whitespace between tokens', () => {
+  const source = `import   React   from   'react'\nimport\t*\tas\t_\tfrom\t'lodash'\n`
+  const imports = extractImports(source)
+
+  assert.ok(imports.includes('react'))
+  assert.ok(imports.includes('lodash'))
+})
+
+test('extracts imports with tabs between tokens', () => {
+  const source = "import\t{ useState }\tfrom\t'react'\n"
+  const imports = extractImports(source)
+
+  assert.ok(imports.includes('react'))
+})
+
+test('does not extract imports inside block comments', () => {
+  const source = `/* import foo from 'commented-out-pkg' */\nimport real from 'real-pkg'\n`
+  const imports = extractImports(source)
+
+  assert.ok(!imports.includes('commented-out-pkg'))
+  assert.ok(imports.includes('real-pkg'))
+})
+
+test('does not extract imports inside line comments', () => {
+  const source = `// import foo from 'line-commented-pkg'\nimport real from 'real-pkg'\n`
+  const imports = extractImports(source)
+
+  assert.ok(!imports.includes('line-commented-pkg'))
+  assert.ok(imports.includes('real-pkg'))
+})
+
+test('extracts scoped package imports (multiple)', () => {
+  const source = `import { something } from '@scope/pkg'\nimport util from '@org/utils'\n`
+  const imports = extractImports(source)
+
+  assert.ok(imports.includes('@scope/pkg'))
+  assert.ok(imports.includes('@org/utils'))
+})
+
+test('extracts dynamic imports of scoped packages', () => {
+  const source = `const mod = import('@scope/dynamic-pkg')\n`
+  const imports = extractImports(source)
+
+  assert.ok(imports.includes('@scope/dynamic-pkg'))
+})
