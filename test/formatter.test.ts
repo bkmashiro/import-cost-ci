@@ -28,6 +28,7 @@ function createMockedCli(size: number): { dir: string; entry: string; fixture: s
       .replace("'./formatter.js'", `'${pathToFileURL(join(process.cwd(), 'src/formatter.ts')).href}'`)
       .replace("'./github-comment.js'", `'${pathToFileURL(githubComment).href}'`)
       .replace("'./history.js'", `'${pathToFileURL(join(process.cwd(), 'src/history.ts')).href}'`)
+      .replace("'./index-helpers.js'", `'${pathToFileURL(join(process.cwd(), 'src/index-helpers.ts')).href}'`)
   )
 
   return { dir, entry, fixture }
