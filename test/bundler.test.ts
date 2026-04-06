@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
@@ -722,3 +723,43 @@ test('rollup adapter: throws descriptive error when output array is empty', () =
     )
   runGuardTest(src, 'rollup', /rollup returned no output chunks/)
 })
+
+// webpack adapter: resource cleanup on error paths
+// ---------------------------------------------------------------------------
+
+test('webpack adapter: rejects and cleans up temp dir when given a non-existent package', async () => {
+  // Snapshot temp dirs before so we can check nothing leaks after the call.
+  const prefix = 'import-cost-webpack-'
+  const before = readdirTmp(prefix)
+
+  await assert.rejects(
+    measureImportSize('__this-package-does-not-exist-at-all__', 'webpack'),
+  )
+
+  const after = readdirTmp(prefix)
+  // Any dirs that were newly created during this call must be gone by now.
+  const leaked = after.filter(d => !before.includes(d))
+  assert.deepEqual(leaked, [], `temp dirs were not cleaned up: ${leaked.join(', ')}`)
+})
+
+test('webpack adapter: rejects with a meaningful error when webpack itself errors', async () => {
+  // Pass an entry that is not a valid path — webpack's run() callback receives
+  // a non-null `err` (or stats with errors), exercising the error branch where
+  // compiler.close() must still be called.
+  await assert.rejects(
+    measureImportSize('\x00invalid\x00entry', 'webpack'),
+  )
+})
+
+/** List names of dirs under os.tmpdir() whose basename starts with `prefix`. */
+function readdirTmp(prefix: string): string[] {
+  const base = tmpdir()
+  try {
+    return readdirSync(base)
+      .filter((name: string) => name.startsWith(prefix))
+      .map((name: string) => join(base, name))
+      .filter((full: string) => existsSync(full))
+  } catch {
+    return []
+  }
+}
