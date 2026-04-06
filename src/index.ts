@@ -96,8 +96,8 @@ program
         let bytes: number
         try {
           bytes = await measureImportSize(pkg, opts.bundler)
-        } catch {
-          console.error(`Warning: could not bundle "${pkg}", skipping.`)
+        } catch (error) {
+          console.error(`Warning: could not bundle "${pkg}", skipping.`, error instanceof Error ? error.message : error)
           continue
         }
         results.push({ pkg, bytes, exceeded: bytes > limitBytes })

@@ -238,7 +238,7 @@ test('CLI reports when no external imports are found', () => {
   }
 })
 
-test('CLI warns and skips packages that cannot be bundled', () => {
+test('CLI warns and skips packages that cannot be bundled, including error message', () => {
   const { dir, entry, fixture } = createMockedCli({
     bundlerSource: 'export async function measureImportSize() { throw new Error("bundle failed") }\n',
   })
@@ -251,6 +251,26 @@ test('CLI warns and skips packages that cannot be bundled', () => {
 
     assert.equal(result.status, 0)
     assert.match(result.stderr, /Warning: could not bundle "oversized-pkg", skipping\./)
+    assert.match(result.stderr, /bundle failed/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI warns and skips packages that throw a non-Error value', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: 'export async function measureImportSize() { throw "string rejection" }\n',
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /Warning: could not bundle "oversized-pkg", skipping\./)
+    assert.match(result.stderr, /string rejection/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
