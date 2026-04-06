@@ -115,6 +115,20 @@ async function measureWithRollup(pkg: string): Promise<number> {
   return zlib.gzipSync(Buffer.from(code)).length
 }
 
+/**
+ * Bundles a single npm package in isolation and returns its gzip-compressed size in bytes.
+ *
+ * The package is bundled with minification enabled using the requested bundler, and the
+ * resulting output is gzip-compressed before measuring. This approximates the
+ * over-the-wire cost a browser pays when fetching the dependency.
+ *
+ * @param pkg - The npm package specifier to measure (e.g. `"lodash"`, `"react-dom"`).
+ * @param bundler - The bundler to use for the build. Defaults to `"esbuild"`.
+ *   Supported values: `"esbuild"`, `"webpack"`, `"vite"`, `"rollup"`.
+ * @returns The gzip-compressed bundle size in bytes.
+ * @throws {Error} If the bundler name is not one of the supported values, or if the
+ *   underlying bundler tool throws during the build.
+ */
 export async function measureImportSize(pkg: string, bundler: BundlerName = 'esbuild'): Promise<number> {
   switch (bundler) {
     case 'esbuild':  return measureWithEsbuild(pkg)
