@@ -86,6 +86,54 @@ test('formatHistoryReport shows historical deltas and weekly trend', () => {
   assert.match(output, /Trend: \+6\.8kb\/week \(growing\)/)
 })
 
+test('loadHistory skips entries with malformed date strings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+
+  try {
+    const historyPath = getHistoryFilePath(dir)
+    writeFileSync(
+      historyPath,
+      JSON.stringify({
+        entries: [
+          { date: '2024-03-20', totalSize: 1000, packages: [] },
+          { date: 'not-a-date', totalSize: 2000, packages: [] },
+          { date: '2024-03-18', totalSize: 900, packages: [] },
+        ],
+      }) + '\n'
+    )
+
+    const history = loadHistory(dir)
+    assert.equal(history.length, 2)
+    assert.equal(history[0].date, '2024-03-20')
+    assert.equal(history[1].date, '2024-03-18')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('formatHistoryReport with malformed date produces no NaN output', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+
+  try {
+    const historyPath = getHistoryFilePath(dir)
+    writeFileSync(
+      historyPath,
+      JSON.stringify({
+        entries: [
+          { date: '2024-03-20', totalSize: 1000, packages: [] },
+          { date: 'not-a-date', totalSize: 2000, packages: [] },
+        ],
+      }) + '\n'
+    )
+
+    const history = loadHistory(dir)
+    const report = formatHistoryReport(history)
+    assert.doesNotMatch(report, /NaN/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('shouldAutoEnableHistory detects pushes to main from the GitHub event payload', () => {
   const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-event-'))
   const eventPath = join(dir, 'event.json')

@@ -35,8 +35,16 @@ function getTodayDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+function isValidDate(dateString: string): boolean {
+  return !Number.isNaN(Date.parse(dateString))
+}
+
 function sanitizeHistoryEntry(entry: Partial<HistoryEntry> | null | undefined): HistoryEntry | null {
   if (!entry || typeof entry.date !== 'string' || typeof entry.totalSize !== 'number' || !Array.isArray(entry.packages)) {
+    return null
+  }
+
+  if (!isValidDate(entry.date)) {
     return null
   }
 
