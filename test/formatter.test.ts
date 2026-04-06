@@ -99,6 +99,72 @@ test('renders treemap output sorted by size and groups the remainder', () => {
   assert.ok(output.indexOf('alpha') < output.indexOf('beta'))
 })
 
+// formatSize edge cases
+test('formatSize returns exact bytes for 0', () => {
+  assert.equal(formatSize(0), '0 B')
+})
+
+test('formatSize returns bytes for 1023 (just below 1 kB boundary)', () => {
+  assert.equal(formatSize(1023), '1023 B')
+})
+
+test('formatSize uses 1024 as the kB boundary, not 1000', () => {
+  // 1000 bytes is below the binary 1024 threshold — must stay as B
+  assert.equal(formatSize(1000), '1000 B')
+  // 1024 bytes is the exact boundary — must convert
+  assert.equal(formatSize(1024), '1.0 kB')
+})
+
+// formatResultsMarkdown edge cases
+test('formatResultsMarkdown escapes pipe characters in package names', () => {
+  const output = formatResultsMarkdown(
+    [{ pkg: 'scope|pkg', bytes: 100, exceeded: false }],
+    50_000
+  )
+  assert.match(output, /`scope\\|pkg`/)
+})
+
+test('formatResultsMarkdown with empty results shows no violations', () => {
+  const output = formatResultsMarkdown([], 50_000)
+  assert.match(output, /All imports are within/)
+  assert.doesNotMatch(output, /Exceeded/)
+})
+
+// formatTreemap edge cases
+test('formatTreemap with empty array shows 0 B total', () => {
+  const output = formatTreemap([])
+  assert.match(output, /total: 0 B/)
+})
+
+test('formatTreemap with exactly 10 packages shows no "other" row', () => {
+  const pkgs = Array.from({ length: 10 }, (_, i) => ({
+    pkg: `pkg-${i}`,
+    bytes: 100 * (i + 1),
+    exceeded: false,
+  }))
+  const output = formatTreemap(pkgs)
+  assert.doesNotMatch(output, /\[other/)
+})
+
+test('formatTreemap with 11 packages shows "other 1 pkgs" row', () => {
+  const pkgs = Array.from({ length: 11 }, (_, i) => ({
+    pkg: `pkg-${i}`,
+    bytes: 100 * (i + 1),
+    exceeded: false,
+  }))
+  const output = formatTreemap(pkgs)
+  assert.match(output, /\[other 1 pkgs\]/)
+})
+
+test('formatTreemap with all-zero sizes renders empty bars without NaN', () => {
+  const output = formatTreemap([
+    { pkg: 'zero-a', bytes: 0, exceeded: false },
+    { pkg: 'zero-b', bytes: 0, exceeded: false },
+  ])
+  assert.doesNotMatch(output, /NaN/)
+  assert.match(output, /░/)
+})
+
 test('does not exit with code 1 in --no-fail mode when imports exceed the limit', () => {
   const { dir, entry, fixture } = createMockedCli(1500)
 
