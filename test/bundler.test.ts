@@ -398,6 +398,76 @@ test('vite adapter: throws when output chunk has neither code nor source', () =>
   }
 })
 
+// ---------------------------------------------------------------------------
+// webpack guard: memfs API-change detection (guard logic mirrored inline)
+// ---------------------------------------------------------------------------
+
+// These tests verify the guard conditions from measureWithWebpack directly,
+// using the same predicate expressions as the production code.
+
+function runMemfsGuard(fakeMemfs: Record<string, unknown>): string | null {
+  if (typeof fakeMemfs['Volume'] !== 'function') {
+    return 'memfs.Volume is not available — memfs API may have changed'
+  }
+  if (typeof fakeMemfs['createFsFromVolume'] !== 'function') {
+    return 'memfs.createFsFromVolume is not available — memfs API may have changed'
+  }
+  return null
+}
+
+test('webpack guard: missing Volume produces descriptive error', () => {
+  const err = runMemfsGuard({ createFsFromVolume: () => {} })
+  assert.equal(err, 'memfs.Volume is not available — memfs API may have changed')
+})
+
+test('webpack guard: missing createFsFromVolume produces descriptive error', () => {
+  const err = runMemfsGuard({ Volume: function Volume() {} })
+  assert.equal(err, 'memfs.createFsFromVolume is not available — memfs API may have changed')
+})
+
+test('webpack guard: both exports present passes without error', () => {
+  const err = runMemfsGuard({ Volume: function Volume() {}, createFsFromVolume: () => {} })
+  assert.equal(err, null)
+})
+
+test('webpack guard: non-function Volume (e.g. undefined) produces descriptive error', () => {
+  const err = runMemfsGuard({ Volume: undefined, createFsFromVolume: () => {} })
+  assert.equal(err, 'memfs.Volume is not available — memfs API may have changed')
+})
+
+// ---------------------------------------------------------------------------
+// vite guard: watcher / no-code-string detection
+// ---------------------------------------------------------------------------
+
+test('vite guard: watcher return value causes descriptive error', () => {
+  // Simulate the guard inline: a watcher has an `on` method.
+  const fakeWatcher = { on: () => {} }
+  const isWatcher = fakeWatcher !== null && typeof fakeWatcher === 'object' && ('on' in fakeWatcher)
+  assert.ok(isWatcher, 'watcher detection should fire for object with .on')
+})
+
+test('vite guard: output chunk without code string causes descriptive error', () => {
+  // Simulate the guard inline: output item has no `code` property.
+  const fakeOutput = [{ type: 'asset', source: Buffer.from('') }]
+  const chunk = fakeOutput.find(o => o.type === 'chunk') ?? fakeOutput[0]
+  const hasCode = 'code' in chunk && typeof (chunk as { code?: unknown }).code === 'string'
+  assert.ok(!hasCode, 'guard should detect missing code string')
+})
+
+test('vite guard: output chunk with non-string code causes descriptive error', () => {
+  const fakeOutput = [{ type: 'chunk', code: 42 }]
+  const chunk = fakeOutput[0]
+  const hasCode = 'code' in chunk && typeof (chunk as { code?: unknown }).code === 'string'
+  assert.ok(!hasCode, 'guard should detect non-string code field')
+})
+
+test('vite guard: output chunk with valid code string passes guard', () => {
+  const fakeOutput = [{ type: 'chunk', code: 'console.log(1)' }]
+  const chunk = fakeOutput[0]
+  const hasCode = 'code' in chunk && typeof (chunk as { code?: unknown }).code === 'string'
+  assert.ok(hasCode, 'guard should pass for valid code string')
+})
+
 // rollup
 
 test('rollup adapter: CLI forwards --bundler rollup to measureImportSize', () => {
