@@ -28,6 +28,10 @@ function applyGitHubActionInputs(): void {
   if (getActionBoolean('history', false) || shouldAutoEnableHistory()) {
     args.push('--history')
   }
+  const bundler = process.env.INPUT_BUNDLER
+  if (bundler) {
+    args.push('--bundler', bundler)
+  }
 
   process.argv = args
 }
