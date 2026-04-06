@@ -297,6 +297,89 @@ test('CLI uses GitHub Action inputs to populate argv', () => {
   }
 })
 
+test('CLI passes INPUT_BUNDLER to --bundler when set', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_BUNDLER: 'webpack',
+        INPUT_NO_FAIL: 'true',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:webpack/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI omits --bundler flag when INPUT_BUNDLER is not set (uses CLI default)', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--no-fail'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, INPUT_BUNDLER: undefined },
+    })
+
+    assert.equal(result.status, 0)
+    // Commander default is 'esbuild' when --bundler is not passed
+    assert.match(result.stderr, /bundler:esbuild/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI forwards unknown bundler value as-is from INPUT_BUNDLER', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: `
+      export async function measureImportSize(_pkg, bundler) {
+        process.stderr.write('bundler:' + bundler + '\\n')
+        return 500
+      }
+    `,
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        INPUT_FILE: fixture,
+        INPUT_BUNDLER: 'rollup',
+        INPUT_NO_FAIL: 'true',
+      },
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stderr, /bundler:rollup/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('CLI prints the treemap when --treemap is passed', () => {
   const { dir, entry, fixture } = createMockedCli({
     parserSource: 'export function extractImports() { return ["beta", "alpha", "gamma"] }\n',
