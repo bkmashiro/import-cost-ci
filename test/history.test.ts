@@ -111,6 +111,62 @@ test('loadHistory skips entries with malformed date strings', () => {
   }
 })
 
+test('loadHistory returns empty array for malformed JSON', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+
+  try {
+    writeFileSync(getHistoryFilePath(dir), '{"entries": [truncated')
+    assert.deepEqual(loadHistory(dir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory returns empty array for empty file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+
+  try {
+    writeFileSync(getHistoryFilePath(dir), '')
+    assert.deepEqual(loadHistory(dir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory returns empty array for JSON that is not an object or array', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+
+  try {
+    writeFileSync(getHistoryFilePath(dir), '"just a string"')
+    assert.deepEqual(loadHistory(dir), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('loadHistory skips malformed entries and returns only valid ones', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
+
+  try {
+    const content = JSON.stringify({
+      entries: [
+        { date: '2024-03-20', totalSize: 1000, packages: [{ name: 'lodash', size: 1000 }] },
+        { date: null, totalSize: 'bad', packages: [] },
+        null,
+        { date: '2024-03-18', totalSize: 800, packages: [] },
+      ],
+    })
+    writeFileSync(getHistoryFilePath(dir), content)
+
+    const history = loadHistory(dir)
+    assert.equal(history.length, 2)
+    assert.equal(history[0].date, '2024-03-20')
+    assert.equal(history[1].date, '2024-03-18')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('formatHistoryReport with malformed date produces no NaN output', () => {
   const dir = mkdtempSync(join(tmpdir(), 'import-cost-history-'))
 
