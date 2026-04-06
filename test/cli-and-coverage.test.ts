@@ -375,3 +375,60 @@ test('CLI auto-enables history for GitHub Action pushes to main', () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('CLI --limit 50kb allows a package just under the 1024-based boundary (51199 bytes)', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: 'export async function measureImportSize() { return 51199 }\n',
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '50kb', '--no-fail'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stdout, /✓/)
+    assert.doesNotMatch(result.stdout, /exceeded/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI --limit 50kb rejects a package just over the 1024-based boundary (51201 bytes)', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: 'export async function measureImportSize() { return 51201 }\n',
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '50kb'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stdout, /✗/)
+    assert.match(result.stdout, /exceeded/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI --limit 50kb accepts exactly 51200 bytes (the boundary itself)', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: 'export async function measureImportSize() { return 51200 }\n',
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '50kb', '--no-fail'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stdout, /✓/)
+    assert.doesNotMatch(result.stdout, /exceeded/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -12,8 +12,8 @@ function parseLimit(raw: string): number {
   if (!match) throw new Error(`Invalid size limit: ${raw}`)
   const value = parseFloat(match[1])
   const unit = (match[2] || 'b').toLowerCase()
-  if (unit === 'kb') return Math.round(value * 1000)
-  if (unit === 'mb') return Math.round(value * 1_000_000)
+  if (unit === 'kb') return Math.round(value * 1024)
+  if (unit === 'mb') return Math.round(value * 1024 * 1024)
   return Math.round(value)
 }
 
