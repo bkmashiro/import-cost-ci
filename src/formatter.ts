@@ -8,7 +8,7 @@ export interface ImportResult {
 
 const TREEMAP_WIDTH = 20
 
-function escapeMarkdownCell(value: string): string {
+export function escapeMarkdownCell(value: string): string {
   return value.replace(/\|/g, '\\|')
 }
 

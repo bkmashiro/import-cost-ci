@@ -39,7 +39,7 @@ function isValidDate(dateString: string): boolean {
   return !Number.isNaN(Date.parse(dateString))
 }
 
-function sanitizeHistoryEntry(entry: Partial<HistoryEntry> | null | undefined): HistoryEntry | null {
+export function sanitizeHistoryEntry(entry: Partial<HistoryEntry> | null | undefined): HistoryEntry | null {
   if (!entry || typeof entry.date !== 'string' || typeof entry.totalSize !== 'number' || !Array.isArray(entry.packages)) {
     return null
   }
@@ -142,7 +142,7 @@ export function saveHistoryEntry(results: ImportResult[], cwd = process.cwd(), d
   return entries
 }
 
-function formatSignedKb(bytes: number): string {
+export function formatSignedKb(bytes: number): string {
   const kb = bytes / 1024
   const rounded = Math.round(Math.abs(kb) * 10) / 10
   const sign = bytes >= 0 ? '+' : '-'
@@ -154,7 +154,7 @@ function formatSignedKb(bytes: number): string {
   return `${sign}${rounded.toFixed(1)}kb`
 }
 
-function describeTrend(bytesPerWeek: number): string {
+export function describeTrend(bytesPerWeek: number): string {
   if (Math.abs(bytesPerWeek) < 1) {
     return 'stable'
   }
