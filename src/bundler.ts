@@ -49,15 +49,16 @@ async function measureWithWebpack(pkg: string): Promise<number> {
       compiler.outputFileSystem = mfs
 
       compiler.run((err: Error | null, stats: any) => {
-        if (err) { reject(err); return }
-        if (stats?.hasErrors()) { reject(new Error(stats.toString())); return }
-        try {
-          const buf = mfs.readFileSync('/out/bundle.js') as Buffer
-          resolve(buf)
-        } catch (e) {
-          reject(e)
-        }
-        compiler.close(() => {})
+        compiler.close(() => {
+          if (err) { reject(err); return }
+          if (stats?.hasErrors()) { reject(new Error(stats.toString())); return }
+          try {
+            const buf = mfs.readFileSync('/out/bundle.js') as Buffer
+            resolve(buf)
+          } catch (e) {
+            reject(e)
+          }
+        })
       })
     })
     return zlib.gzipSync(outputBuffer).length
