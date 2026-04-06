@@ -112,3 +112,27 @@ test('handles import assertion alongside named imports', () => {
 
   assert.deepEqual(imports, ['my-pkg'])
 })
+
+test('returns empty array for empty string input', () => {
+  const imports = extractImports('')
+
+  assert.deepEqual(imports, [])
+})
+
+test('extracts scoped package imports', () => {
+  const source = `import foo from '@scope/package'`
+  const imports = extractImports(source)
+
+  assert.ok(imports.includes('@scope/package'))
+})
+
+test('extracts imports using both single and double quotes in the same file', () => {
+  const source = [
+    `import foo from 'single-quote-pkg'`,
+    `import bar from "double-quote-pkg"`,
+  ].join('\n')
+  const imports = extractImports(source)
+
+  assert.ok(imports.includes('single-quote-pkg'))
+  assert.ok(imports.includes('double-quote-pkg'))
+})
