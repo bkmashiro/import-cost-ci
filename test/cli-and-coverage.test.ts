@@ -562,6 +562,22 @@ test('CLI accepts uppercase B unit in --limit and treats package as failing', ()
   }
 })
 
+test('CLI exits with an error when --limit is an invalid string', () => {
+  const { dir, entry, fixture } = createMockedCli()
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', 'abc'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /Invalid size limit: abc/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('CLI forwards unknown bundler value from INPUT_BUNDLER without validation', () => {
   const { dir, entry, fixture } = createMockedCli({
     bundlerSource: `
@@ -586,6 +602,42 @@ test('CLI forwards unknown bundler value from INPUT_BUNDLER without validation',
 
     assert.equal(result.status, 0)
     assert.match(result.stderr, /bundler:unknown-bundler/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI accepts 0kb as a valid limit and flags all non-zero packages', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: 'export async function measureImportSize() { return 1 }\n',
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '0kb', '--no-fail'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stdout, /1 import\(s\) exceeded the 0kb limit\./)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI accepts a decimal mb limit like 1.5mb', () => {
+  const { dir, entry, fixture } = createMockedCli({
+    bundlerSource: 'export async function measureImportSize() { return 2_000_000 }\n',
+  })
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '1.5mb', '--no-fail'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+    assert.match(result.stdout, /1 import\(s\) exceeded the 1\.5mb limit\./)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
