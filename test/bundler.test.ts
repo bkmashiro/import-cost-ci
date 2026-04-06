@@ -8,6 +8,121 @@ import test from 'node:test'
 import { measureImportSize } from '../src/bundler.ts'
 
 // ---------------------------------------------------------------------------
+// Empty-output guard: Vite and Rollup adapters
+//
+// These tests inject a module loader that intercepts dynamic import() calls
+// inside the adapter functions, replacing vite/rollup with stubs that return
+// empty output arrays — verifying the explicit error throw added to each adapter.
+// ---------------------------------------------------------------------------
+
+function makeRegisterHook(loaderPath: string): string {
+  const loaderUrl = pathToFileURL(loaderPath).href
+  return `data:text/javascript,import{register}from"node:module";import{pathToFileURL}from"node:url";register(${JSON.stringify(loaderUrl)},pathToFileURL("./"));`
+}
+
+function writeLoaderAndScript(
+  dir: string,
+  stubbedModules: Record<string, string>,
+  scriptBody: string
+): { loader: string; script: string } {
+  const loader = join(dir, 'loader.mjs')
+  const interceptLines = Object.entries(stubbedModules)
+    .map(([name, file]) =>
+      `  if (s === ${JSON.stringify(name)}) return { shortCircuit: true, url: ${JSON.stringify(pathToFileURL(file).href)} }`
+    )
+    .join('\n')
+  writeFileSync(loader, `export async function resolve(s, ctx, next) {\n${interceptLines}\n  return next(s, ctx)\n}\n`)
+
+  const bundlerUrl = pathToFileURL(join(process.cwd(), 'src/bundler.ts')).href
+  const script = join(dir, 'run.mjs')
+  writeFileSync(script, `import { measureImportSize } from ${JSON.stringify(bundlerUrl)}\n${scriptBody}\n`)
+  return { loader, script }
+}
+
+function runWithLoader(loader: string, script: string): ReturnType<typeof spawnSync> {
+  return spawnSync(
+    'node',
+    ['--import', 'tsx/esm', '--import', makeRegisterHook(loader), script],
+    { cwd: process.cwd(), encoding: 'utf8', timeout: 30000 }
+  )
+}
+
+const EMPTY_OUTPUT_RE = /Bundler returned no output chunks/
+
+test('vite adapter: throws when build returns empty output', () => {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-bundler-test-'))
+  try {
+    const viteStub = join(dir, 'vite-stub.mjs')
+    writeFileSync(viteStub, `export const build = async () => ({ output: [] })\n`)
+
+    const { loader, script } = writeLoaderAndScript(
+      dir,
+      { vite: viteStub },
+      `try {
+  await measureImportSize('some-pkg', 'vite')
+  process.stderr.write('Expected error\\n'); process.exit(1)
+} catch (e) {
+  if (!${EMPTY_OUTPUT_RE}.test(e.message)) { process.stderr.write('Wrong: ' + e.message + '\\n'); process.exit(1) }
+}`
+    )
+    const result = runWithLoader(loader, script)
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('vite adapter: throws when build returns array result with empty output', () => {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-bundler-test-'))
+  try {
+    const viteStub = join(dir, 'vite-stub.mjs')
+    writeFileSync(viteStub, `export const build = async () => [{ output: [] }]\n`)
+
+    const { loader, script } = writeLoaderAndScript(
+      dir,
+      { vite: viteStub },
+      `try {
+  await measureImportSize('some-pkg', 'vite')
+  process.stderr.write('Expected error\\n'); process.exit(1)
+} catch (e) {
+  if (!${EMPTY_OUTPUT_RE}.test(e.message)) { process.stderr.write('Wrong: ' + e.message + '\\n'); process.exit(1) }
+}`
+    )
+    const result = runWithLoader(loader, script)
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('rollup adapter: throws when generate returns empty output', () => {
+  const dir = mkdtempSync(join(process.cwd(), 'import-cost-bundler-test-'))
+  try {
+    const rollupStub = join(dir, 'rollup-stub.mjs')
+    const nodeResolveStub = join(dir, 'node-resolve-stub.mjs')
+    const terserStub = join(dir, 'terser-stub.mjs')
+    writeFileSync(rollupStub, `export const rollup = async () => ({ generate: async () => ({ output: [] }), close: async () => {} })\n`)
+    writeFileSync(nodeResolveStub, `export const nodeResolve = () => ({})\n`)
+    writeFileSync(terserStub, `export default () => ({})\n`)
+
+    const { loader, script } = writeLoaderAndScript(
+      dir,
+      { rollup: rollupStub, '@rollup/plugin-node-resolve': nodeResolveStub, '@rollup/plugin-terser': terserStub },
+      `try {
+  await measureImportSize('some-pkg', 'rollup')
+  process.stderr.write('Expected error\\n'); process.exit(1)
+} catch (e) {
+  if (!${EMPTY_OUTPUT_RE}.test(e.message)) { process.stderr.write('Wrong: ' + e.message + '\\n'); process.exit(1) }
+}`
+    )
+    const result = runWithLoader(loader, script)
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------
 // measureImportSize: dispatch guard
 // ---------------------------------------------------------------------------
 
