@@ -454,6 +454,56 @@ test('CLI writes and prints history when --history is passed', () => {
   }
 })
 
+test('CLI accepts uppercase KB unit in --limit and treats package as passing', () => {
+  // 1500 bytes < 50 KB (50_000 bytes) — should pass; wrong parsing would treat 50KB as 50 bytes and fail
+  const { dir, entry, fixture } = createMockedCli()
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '50KB'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI accepts uppercase MB unit in --limit and treats package as passing', () => {
+  // 1500 bytes < 10 MB (10_000_000 bytes) — should pass
+  const { dir, entry, fixture } = createMockedCli()
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '10MB'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('CLI accepts uppercase B unit in --limit and treats package as failing', () => {
+  // 1500 bytes > 1 B — should fail; wrong parsing would treat 1B as 1 byte which also fails, but
+  // the important thing is that the limit parses without error
+  const { dir, entry, fixture } = createMockedCli()
+
+  try {
+    const result = spawnSync('pnpm', ['exec', 'tsx', entry, fixture, '--limit', '1B'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    })
+
+    assert.equal(result.status, 1)
+    assert.match(result.stdout, /exceeded the 1B limit/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('CLI auto-enables history for GitHub Action pushes to main', () => {
   const { dir, entry, fixture } = createMockedCli()
   const eventPath = join(dir, 'event.json')
