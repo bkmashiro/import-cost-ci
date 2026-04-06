@@ -14,6 +14,21 @@ interface GitHubIssueComment {
   body: string
 }
 
+/**
+ * Reads GitHub Actions environment variables to identify the current pull request.
+ *
+ * Inspects `GITHUB_REPOSITORY`, `GITHUB_EVENT_NAME`, and `GITHUB_EVENT_PATH`
+ * to determine the PR context. Only `pull_request` and `pull_request_target`
+ * event types are supported.
+ *
+ * @returns A {@link PullRequestRef} with owner, repo, and issue number if running
+ *   in a supported GitHub Actions PR context; `null` otherwise.
+ *   Returns `null` when:
+ *   - Any required environment variable is missing.
+ *   - The event is not a pull request event.
+ *   - `GITHUB_REPOSITORY` does not contain a `/` separator.
+ *   - The event payload does not contain `pull_request.number`.
+ */
 export function parsePullRequestRef(): PullRequestRef | null {
   const repository = process.env.GITHUB_REPOSITORY
   const eventName = process.env.GITHUB_EVENT_NAME
@@ -69,6 +84,21 @@ async function githubRequest<T>(url: string, init: RequestInit, token: string): 
   return response.json() as Promise<T>
 }
 
+/**
+ * Posts or updates an import-cost report as a GitHub PR comment, if applicable.
+ *
+ * The function is a no-op when `GITHUB_TOKEN` is not set or when the current
+ * environment is not a GitHub Actions pull request run (as determined by
+ * {@link parsePullRequestRef}). When a previous comment from this tool exists
+ * (identified by an HTML marker), it is updated in place rather than creating
+ * a duplicate.
+ *
+ * @param results - The import measurements to include in the comment body.
+ * @param limit - The size limit in bytes, reported in the comment header.
+ * @returns Resolves when the comment has been posted or updated, or
+ *   immediately if the preconditions are not met.
+ * @throws {Error} If the GitHub API request fails (non-2xx response).
+ */
 export async function maybePostGitHubComment(results: ImportResult[], limit: number): Promise<void> {
   const token = process.env.GITHUB_TOKEN
   if (!token) {

@@ -5,6 +5,16 @@ const IMPORT_PATTERNS = [
   /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
 ]
 
+/**
+ * Extracts all third-party package names from a source file's import statements.
+ *
+ * Handles both static (`import ... from 'pkg'`) and dynamic (`import('pkg')`)
+ * import syntax. Relative (`./`) and absolute (`/`) import paths are skipped.
+ * Scoped packages (e.g. `@scope/pkg`) and bare specifiers are included.
+ *
+ * @param source - The raw source file content to parse.
+ * @returns A deduplicated array of package names found in the source.
+ */
 export function extractImports(source: string): string[] {
   const imports = new Set<string>()
 
