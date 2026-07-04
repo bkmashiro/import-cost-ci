@@ -1,0 +1,19 @@
+cli:
+  preference: [claude]
+  claude:
+    model: [sonnet, opus]
+    permissionMode: dangerously-skip
+git:
+  baseBranch: main
+  autoCreatePR: true
+  draftPR: true
+execution:
+  maxConcurrentAgents: 1
+  taskTimeoutMinutes: 30
+  maxAttemptsPerTask: 3
+brainstorm:
+  enabled: true
+  focusAreas: [tests, docs, security, performance, code-quality]
+  model: sonnet
+  maxSuggestionsPerRun: 3
+  intervalMinutes: 5

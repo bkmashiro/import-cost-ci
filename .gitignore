@@ -1,1 +1,5 @@
 node_modules/
+
+# burn-harness
+.burn/
+burn.local.yaml
